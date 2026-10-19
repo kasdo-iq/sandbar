@@ -1,53 +1,58 @@
 # AGENTS.md
 
-Manus-compatible sandbox runtime (reconstructed from bytecode, modernized 2026-10 in phases 1–5). Python 3.11 (container) / 3.12 (local venv), FastAPI + uvicorn, Playwright Chromium, pexpect terminals.
+Manus-compatible sandbox runtime (bytecode reconstruction, modernized 2026-10; history in `AUDIT.md`, `README.md`). FastAPI + uvicorn on 8330, Playwright Chromium, pexpect terminals, vendored `browser_use` agent. Container targets Python 3.11; this checkout's venv is 3.12 — keep new code 3.11-compatible.
 
-## Run / verify
+## Commands
 
-- Start server: `python start_server.py` (defaults: host `0.0.0.0`, port `8330`; argv: `--port/--host/--log-level/--chrome-path`). Requires `SANDBOX_API_TOKEN` in env (or `AUTH_DISABLED=true`) — fail-closed startup.
-- Tests: `pytest tests/` (38 tests; no network/LLM keys needed). Also `requirements-dev.txt` (pytest, pytest-asyncio, ruff) and `ruff.toml`.
-- Docker: base image `mcr.microsoft.com/playwright/python:v1.64.0-noble` — MUST stay in lockstep with the playwright pin in requirements.txt. `ARG ALLOW_SUDO=true` (hardened build: `--build-arg ALLOW_SUDO=false`).
-- Run a single legacy test file: `pytest browser_use/agent/tests.py` (explicit paths work even without matching patterns).
+- Server: `python start_server.py` (`--port/--host/--log-level/--chrome-path`). Fail-closed: needs `SANDBOX_API_TOKEN`, or `AUTH_DISABLED=true` for local dev.
+- Tests (offline, no keys/network): `pytest tests/` → 43 tests; fast subset `pytest tests/ -m smoke` (35). Markers live in `pytest.ini`.
+- On this machine use the repo venv: `.\.venv\Scripts\python -m pytest tests/` (test deps in `requirements-dev.txt`).
+- Lint: `ruff check .` (`ruff.toml`: strict for modernized files, per-file relief for legacy reconstructed ones). Do NOT run `ruff format` — it churns the legacy sources.
+- Docker base `mcr.microsoft.com/playwright/python:v1.64.0-noble` must stay in lockstep with the playwright pin in `requirements.txt`; `--build-arg ALLOW_SUDO=false` builds a hardened image. No CI exists: verify with pytest + ruff + hitting endpoints.
+
+## Compatibility invariants (extend, never rename/drop)
+
+- Legacy surface is the Manus contract: `/file*`, `/browser/*`, `/text_editor`, `/terminal` (WS), `/terminal/{id}/*`, `/init-sandbox`, `/zip-and-upload`, `/healthz`; models in `app/types/`, `app/models.py`; documented in `openapi.yaml` + `app/README.md`. Add endpoints and fields; do not change existing ones.
+- `/terminal` is a WebSocket route, so it never appears in FastAPI's generated `app.openapi()` even though `openapi.yaml` documents it — update `openapi.yaml` by hand when adding routes.
+- `browser_use/` is a heavily modified vendored copy that shadows the pip package (root-first `sys.path`). Edit `browser_use/**` only; the PyPI `browser-use` package is deliberately absent from `requirements.txt`.
+- `browser_use/browser/context.py` loads injection JS from repo-root `app_data/js/` via a `../../app_data/js` relative path — moving files breaks it silently.
+- Playwright internals are imported (`playwright._impl._errors.TargetClosedError`); upgrade Playwright only together with the Docker base tag.
+- Terminals inside the container run `sudo su ubuntu` and parse output via the custom `[CMD_BEGIN]...[CMD_END]` PS1 set on spawn — don't touch that logic.
+
+## Auth, paths, config
+
+- Every endpoint except `GET /healthz` requires `x-sandbox-token` or `Authorization: Bearer` vs `SANDBOX_API_TOKEN` (fail-closed startup); per-IP 429 after 10 failed auths/60s. WS `/terminal` accepts a `?token=` fallback and closes **1008 before accept**, so a TestClient connect attempt raises rather than opens.
+- Middleware order in `app/server.py`: CORS is added before `AuthMiddleware`, so preflight never hits auth; `CORS_ORIGINS` empty means no cross-origin access.
+- `app/pathsafety.py: ensure_allowed` guards every file-touching endpoint; `app/server.py` first regresses Manus-style absolute paths (`/x` → `DEFAULT_WORKING_DIR/x`). Roots come from `SANDBOX_ALLOWED_ROOTS` (default workdir).
+- Secrets stay in env / `.env` (gitignored; `browser_use` calls `load_dotenv()` on import, so a local `.env` affects agent code) and `providers.yaml` (gitignored). Committed templates are `.env.example` / `providers.example.yaml` — never put real values there.
+- `providers.yaml`: `api_key_env` holds the *name* of the env var, never the key. `MANUS_COMPAT` (default true) gates the `data_api.py` proxy client, which needs `$HOME/.secrets/sandbox_api_token`.
+
+## Tools / LLM layer
+
+- Tool contract: `ToolSpec(name, description, input_schema, run)` in `app/tools/registry.py`; builtins in `app/tools/*`, custom ones in `custom_tools/*.py` exposing module-level `TOOL`. Terminal/browser/text_editor are adapters in `app/tools/adapters.py`; their HTTP endpoints are untouched by that wiring.
+- `web_search` picks Tavily → Parallel (`PARALLEL_API_KEY`; `PARALLEL_SEARCH_MODE` validated against `turbo|fast|basic|advanced`, invalid warns and falls back to `fast`) → SearXNG (`SEARXNG_URL`); with none set it returns `status: "disabled"`, not an error. Every backend returns `{title, url, snippet}`.
+- `get_browser_use_llm()` (`app/llm/browser_adapter.py`) returns a LangChain chat model for the vendored Agent; passing your own Claude instance still works. google-genai's `HttpOptions.timeout` is **int milliseconds** — the string form fails client construction.
+- `python_exec` memory rlimit is POSIX-only (guarded on Windows); `web_fetch`/`http_download` block private/metadata ranges and re-validate every redirect hop.
 
 ## Testing quirks
 
-- Files named `tests.py` (`browser_use/agent/tests.py`, `browser_use/agent/message_manager/tests.py`) are NOT collected by bare `pytest` — pass their path explicitly.
-- Tests/demos under `browser_use/dom/tests/process_dom_test.py` hit real websites (kayak.com etc.) with `headless=False` and are interactive (`input()` blocks) — never run them autonomously.
-- `screenshot_test.py` needs Playwright browser binaries (`playwright install`) and network.
-- Root `conftest.py` only puts the repo root on `sys.path` so `browser_use` / `app` imports resolve.
-- Importing `app.server` triggers `TOOL_REGISTRY.register_builtins()`; `GET /healthz` fires a real Playwright init in a background task — `monkeypatch` `browser_manager.initialize`/`status` in test fixtures or TestClient teardown hangs.
+- `pytest.ini` sets `testpaths = tests`, so bare `pytest` skips the legacy `browser_use/**/tests.py` files — pass those paths explicitly.
+- `browser_use/dom/tests/process_dom_test.py` drives real sites with `headless=False` and blocks on `input()`; `screenshot_test.py` needs Playwright binaries + network. Never run these unattended.
+- Importing `app.server` runs `TOOL_REGISTRY.register_builtins()` / `discover_custom_tools()`. `GET /healthz` starts a real Playwright init in a background task: monkeypatch `browser_manager.initialize`/`status` in fixtures or TestClient teardown hangs.
+- Auth and settings are read per request, so `monkeypatch.setenv` is the way to test them.
+- Error style differs by endpoint family: browser/text-editor return HTTP 200 with `{"status": "error", ...}`; file/terminal raise HTTPException. Check the payload, not just the status code.
 
-## Gotchas
+## Platform gotchas (this checkout runs on Windows)
 
-- The local `browser_use/` directory is a heavily modified vendored copy that shadows anything installed from PyPI (root-first sys.path). Always edit the local `browser_use/**`, never site-packages; the pip `browser-use` package is deliberately NOT in requirements.txt — do not re-add it.
-- `browser_use/browser/context.py` loads injection JS from repo-root `app_data/js/` via a `../../app_data/js` relative path — file moves break this silently.
-- Playwright internals are imported (`playwright._impl._errors.TargetClosedError`) — upgrade Playwright only in lockstep with the pinned version and Docker base tag.
-- `app/tools/base.py`: `IS_INSIDE_CONTAINER` is determined by whether `/home/ubuntu` exists; it switches `DEFAULT_WORKING_DIR` and `DEFAULT_USER`. Behavior differs inside vs. outside Docker (e.g. `text_editor` shells out to `cat`/`find` — POSIX only).
-- Terminals: inside container they run `sudo su ubuntu` via pexpect; outside they run `/bin/bash --norc --noprofile`. Output parsing depends on a custom `[CMD_BEGIN]...[CMD_END]` prompt (PS1 set on spawn) — don't change PS1 logic casually.
-- pexpect.spawn does not work natively on Windows; terminal features need Linux/WSL/Docker (verified: the server itself runs fine on Windows; only POSIX-only shells/terminal features are unavailable).
-- `data_api.py`'s `ApiClient` still reads `$HOME/.secrets/sandbox_api_token`; guarded by `MANUS_COMPAT` env (default `true`) with a clear RuntimeError when disabled or the file is missing.
-- Env vars that matter: `SANDBOX_API_TOKEN`, `AUTH_DISABLED`, `CORS_ORIGINS`, `SANDBOX_ALLOWED_ROOTS`, `CHROME_INSTANCE_PATH` (also via `--chrome-path`), `RUNTIME_API_HOST`, `ANONYMIZED_TELEMETRY=false` (disables posthog), `BROWSER_USE_LOGGING_LEVEL`, `WIN_FONT_DIR`, and everything in `.env.example`.
-- `browser_use/agent/service.py` calls `load_dotenv()` on import — a local `.env` affects agent code even when imported as a library.
-- Error handling style: browser/text-editor endpoints return HTTP 200 with `{"status": "error", "error": ...}` bodies; file/terminal endpoints raise HTTPException. Check status fields, don't just look at status codes.
-
-## Modernization additions (phases 1–5)
-
-- **Auth on every endpoint except `GET /healthz`** (`app/auth.py`, ASGI middleware): `x-sandbox-token` or `Authorization: Bearer` vs env `SANDBOX_API_TOKEN`; per-IP 429 after 10 failed attempts/60s; WS `/terminal` auth pre-accept (close 1008); CORS allowlist from `CORS_ORIGINS`. Auth state is read per request → tests can `monkeypatch.setenv`.
-- **LLM layer** `app/llm/`: providers.yaml (`api_key_env` stores the NAME of the env var, never a key) + `LLM_*` env overrides; default/fallback routing with retry/backoff; `POST /llm/chat` supports SSE. `get_browser_use_llm()` (`app/llm/browser_adapter.py`) returns a LangChain chat model for the vendored Agent. Note: google-genai's `HttpOptions.timeout` is int milliseconds.
-- **Tool registry** `app/tools/registry.py`: `ToolSpec(name, description, JSON-schema input, async run)`; builtins (python_exec, web_fetch, web_search, file_search, git, http_download, process_manager + adapters wrapping terminal/browser/text_editor with unchanged HTTP endpoints) + `custom_tools/*.py` exposing module-level `TOOL`. Agent loop: `app/agent/loop.py` behind `POST /agent/run` (SSE, `max_steps` + total timeout + output truncation).
-- **Path safety** (`app/pathsafety.py`): `SANDBOX_ALLOWED_ROOTS` (default `DEFAULT_WORKING_DIR`) enforced on all file-touching endpoints; traversal and symlink escapes rejected; absolute `/x` paths normalized to `$HOME/x` first (Manus-compat).
-- **Lint**: `ruff.toml` — strict for modernized code, per-file relaxed for legacy reconstructed files; `ruff format` is intentionally NOT applied to legacy code.
-- **Local secret files**: `.env` (gitignored, real keys) and `providers.yaml` (gitignored) exist locally; committed templates are `.env.example` / `providers.example.yaml`. Never put real keys in the examples.
+- pexpect does not work on Windows: terminals, and anything POSIX-shell based (`text_editor` shells out to `cat`/`find`), fail outside Linux/WSL/Docker even though the server itself starts fine.
+- `app/tools/base.py` decides container vs host by whether `/home/ubuntu` exists; that switches `DEFAULT_WORKING_DIR` and `DEFAULT_USER`, so behavior differs inside Docker.
 
 ## Structure
 
-- `app/` — sandbox runtime API: `server.py` (all HTTP routes), `auth.py` (token middleware), `pathsafety.py`, `terminal_socket_server.py` (WebSocket), `tools/{browser,terminal,text_editor,registry,...}`, `llm/` (provider layer), `agent/` (loop + endpoints), Pydantic schemas in `types/` + `models.py`. Schema reference: `openapi.yaml` / `app/README.md`.
-- `browser_use/` — vendored browser-use agent library (Claude-adapter agent, DOM building via `buildDomTree.js`, action registry).
-- `custom_tools/` — drop-in tools (auto-discovered at startup).
-- Tests: `tests/` (pytest), plus the legacy `browser_use/**/tests.py` files (explicit path only).
+- `app/server.py` all HTTP routes · `app/auth.py` middleware · `app/pathsafety.py` · `app/terminal_socket_server.py` WS · `app/tools/**` (registry, adapters, tools) · `app/llm/**` providers · `app/agent/loop.py` agent loop behind `POST /agent/run` (SSE) · `app/types/` + `app/models.py` schemas.
+- `browser_use/**` vendored agent library · `app_data/js/` required by it · `custom_tools/` drop-in tools · `tests/` pytest.
 
 ## Conventions
 
-- Several files have Chinese comments mixed with English — the project originates from Manus's production codebase; don't flag or rewrite wholesale.
-- Where docs conflict, trust the code: the editable sources of truth are `app/server.py`, `app/auth.py`, and `browser_use/**`.
-- Legacy endpoints and their request/response schemas (`app/types/*`, `openapi.yaml` paths) are compatibility invariants — extend, don't change.
+- Several files keep Chinese comments from the original Manus codebase — don't translate or rewrite wholesale.
+- Where docs and code disagree, trust `app/server.py`, `app/auth.py`, `browser_use/**`.
