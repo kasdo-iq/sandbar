@@ -33,16 +33,27 @@ class BrowserManager:
     include_attributes: list[str]
     status: Literal['started', 'initializing', 'ready'] = 'started'
 
-    def __init__(self, *, chrome_instance_path=None, headless=True):
+    def __init__(self, *, chrome_instance_path=None, headless=None):
         """
         Initialize the browser manager.
-        
+
         Args:
             chrome_instance_path: Path to Chrome browser instance
-            headless: Whether to run the browser in headless mode
+            headless: Whether to run the browser in headless mode.
+                Defaults to env BROWSER_HEADLESS (unset/"true" = headless), so
+                set BROWSER_HEADLESS=false to watch the bundled browser.
         """
         if not chrome_instance_path:
             chrome_instance_path = os.getenv('CHROME_INSTANCE_PATH', None)
+        if headless is None:
+            headless = os.getenv('BROWSER_HEADLESS', 'true').strip().lower() != 'false'
+        # Attach to an already-running browser over CDP instead of launching the
+        # bundled Chromium -- e.g. Brave/Chrome started with
+        # `--remote-debugging-port=9222`. Note: `chrome_instance_path` alone means
+        # "attach to localhost:9222" in browser_use, which is why it is not passed
+        # to BrowserConfig (the Dockerfile sets CHROME_INSTANCE_PATH but runs no
+        # browser on that port); set BROWSER_CDP_URL to opt in explicitly.
+        self.cdp_url = os.getenv('BROWSER_CDP_URL') or None
         self.chrome_instance_path = chrome_instance_path
         self.headless = headless
         self.browser = None
@@ -51,7 +62,10 @@ class BrowserManager:
         self.include_attributes = ["id", "tagName", "href", "src", "alt", "ariaLabel", "placeholder", "name"]
         self.status = "started"  # started, initializing, ready
 
-        logger.info(f"Browser manager initialized with Chrome path: {chrome_instance_path}")
+        logger.info(
+            f"Browser manager initialized with Chrome path: {chrome_instance_path} "
+            f"(headless={self.headless}, cdp_url={self.cdp_url})"
+        )
 
     async def initialize(self):
         """
@@ -66,6 +80,7 @@ class BrowserManager:
         try:
             browser_config = BrowserConfig(
                 headless=self.headless,
+                cdp_url=self.cdp_url,
                 # chrome_instance_path=self.chrome_instance_path,
                 # args=[
                 #     "--disable-web-security",
@@ -233,22 +248,26 @@ class BrowserManager:
         await self.initialize()
         logger.info("Browser restarted")
 
-    async def health_check(self) -> bool:
+    async def health_check(self) -> list:
         """
-        Check if the browser is healthy.
+        Return the open tabs, or an empty list when the browser is not usable.
+
+        Feeds GET /browser/status -> {"healthy": <bool>, "tabs": [...]}. Note:
+        the vendored BrowserContext has no `evaluate_javascript`, so liveness is
+        proven by listing tabs instead.
         """
         if self.status != "ready":
-            return False
+            return []
 
         try:
             if not self.browser or not self.browser_context or not self.controller:
-                return False
+                return []
 
-            await self.browser_context.evaluate_javascript("1 + 1")
-            return True
+            tabs = await self.browser_context.get_tabs_info()
+            return [t.model_dump() if hasattr(t, "model_dump") else vars(t) for t in tabs]
         except Exception as e:
             logger.error(f"Browser health check failed: {e}")
-            return False
+            return []
 
     def get_screenshot_save_path(self, page_url: str) -> str:
         """

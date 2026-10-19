@@ -126,7 +126,7 @@ It streams SSE step events (`step_start`, `assistant_text`, `tool_call`, `tool_r
 | `SANDBOX_ALLOW_SUDO` | set by Dockerfile from the `ALLOW_SUDO` build arg | `true` |
 | `CUSTOM_TOOLS_DIR`, `AGENT_MAX_STEPS`, `AGENT_TOTAL_TIMEOUT`, `AGENT_SYSTEM_PROMPT`, `AGENT_OUTPUT_MAX_CHARS` | agent loop tuning | `custom_tools`, 15, 300, built-in, 16000 |
 | `PYTHON_EXEC_TIMEOUT`, `PYTHON_EXEC_MAX_MEMORY_MB`, `WEB_FETCH_MAX_BYTES`, `WEB_FETCH_TIMEOUT`, `HTTP_DOWNLOAD_TIMEOUT` | tool limits | 60s, 1024MB, 5MB, 30s, 60s |
-| `CHROME_INSTANCE_PATH`, `BROWSER_USE_LOGGING_LEVEL`, `ANONYMIZED_TELEMETRY` | browser/telemetry (browser_use lib) | see `.env.example` |
+| `CHROME_INSTANCE_PATH`, `BROWSER_HEADLESS`, `BROWSER_CDP_URL`, `BROWSER_USE_LOGGING_LEVEL`, `ANONYMIZED_TELEMETRY` | browser/telemetry: bundled Chromium by default; `BROWSER_HEADLESS=false` shows a window; `BROWSER_CDP_URL` attaches to your own browser running with `--remote-debugging-port=9222` | see `.env.example` |
 
 ## Vendored browser-use decision
 

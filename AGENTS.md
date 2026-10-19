@@ -46,6 +46,9 @@ Manus-compatible sandbox runtime (bytecode reconstruction, modernized 2026-10; h
 
 - pexpect does not work on Windows: terminals, and anything POSIX-shell based (`text_editor` shells out to `cat`/`find`), fail outside Linux/WSL/Docker even though the server itself starts fine.
 - `app/tools/base.py` decides container vs host by whether `/home/ubuntu` exists; that switches `DEFAULT_WORKING_DIR` and `DEFAULT_USER`, so behavior differs inside Docker.
+- Browser: bundled Playwright Chromium is launched by default. `BROWSER_HEADLESS=false` shows a window; `BROWSER_CDP_URL=http://localhost:9222` attaches to your own Brave/Chrome started with `--remote-debugging-port=9222`. Setting `CHROME_INSTANCE_PATH`/`--chrome-path` alone does NOT launch that binary (browser_use attaches over CDP on :9222), so don't uncomment its use in `BrowserConfig` — the Dockerfile sets it and would break.
+- Playwright browser builds must match the installed playwright pin: `.\.venv\Scripts\python -m playwright install chromium` after a version bump, or launches fail with "Executable doesn't exist ... chromium_headless_shell-<build>".
+- `GET /browser/status` returns `{"healthy": bool, "tabs": [{page_id,url,title}]}`; `tabs` used to be a boolean because `health_check()` called a nonexistent `evaluate_javascript` — treat empty `tabs` as "no usable browser".
 
 ## Structure
 

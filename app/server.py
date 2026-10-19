@@ -354,7 +354,7 @@ async def browser_status():
     """Endpoint for browser status"""
     try:
         tabs = await browser_manager.health_check()
-        return {"healthy": True, "tabs": tabs}
+        return {"healthy": bool(tabs), "tabs": tabs}
     except BrowserDeadError as e:
         logger.error(f"Browser Error: {e}")
         return {"healthy": False, "tabs": []}
