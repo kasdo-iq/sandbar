@@ -9,17 +9,19 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List
 import httpx
-from fastapi import Body, FastAPI, HTTPException, Query, WebSocket
+from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from app import pathsafety
+from app.auth import AuthMiddleware, ensure_server_auth_config
 from app.helpers.utils import upload_to_presigned_url, upload_file_parts
 from app.logger import logger
 from app.llm.endpoints import llm_router
 from app.models import MultipartUploadRequest, MultipartUploadResponse
 from app.router import TimedRoute
 from app.terminal_socket_server import TerminalSocketServer
-from app.tools.base import ToolError
+from app.tools.base import DEFAULT_WORKING_DIR, ToolError
 from app.tools.browser.browser_manager import BrowserDeadError, BrowserManager, PageDeadError
 from app.tools.terminal import terminal_manager
 from app.tools.text_editor import text_editor
@@ -27,6 +29,31 @@ from app.types.messages import BrowserActionRequest, BrowserActionResponse, Term
 
 app = FastAPI()
 app.router.route_class = TimedRoute
+
+# --- CORS: env-driven allowlist (replaces the old allow_origins=["*"]) ---
+from app.auth import parse_cors_origins
+
+_cors_origins = parse_cors_origins()
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    logger.info(f"CORS allowlist: {_cors_origins}")
+else:
+    logger.info("CORS_ORIGINS empty — no cross-origin browser access")
+
+# --- Auth: token required on all HTTP routes except GET /healthz ---
+app.add_middleware(AuthMiddleware)
+
+@app.on_event("startup")
+def _startup_auth_check() -> None:
+    """Fail closed: refuse to serve without SANDBOX_API_TOKEN unless
+    AUTH_DISABLED is explicitly true."""
+    ensure_server_auth_config()
 app.include_router(llm_router)
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +68,24 @@ class FileUploadRequest(BaseModel):
     presigned_url: str
 
 MULTIPART_THRESHOLD = 10485760  # 10MB
+
+def _sandbox_path(action_path: str) -> str:
+    """Regress an absolute path into DEFAULT_WORKING_DIR before safety checks.
+
+    Mirrors TextEditor.validate_path normalization so that Manus-style
+    absolute paths (/foo/bar) keep working inside the sandbox root.
+    """
+    p = Path(action_path)
+    if p.is_absolute() and DEFAULT_WORKING_DIR:
+        try:
+            p = Path(DEFAULT_WORKING_DIR) / p.relative_to('/')
+        except ValueError:
+            pass
+    return str(p)
+
+def _ensure_path_allowed(action_path: str) -> Path:
+    """Raise 403 unless the (normalized) path is inside allowed roots."""
+    return pathsafety.raise_if_not_allowed(_sandbox_path(action_path), HTTPException)
 
 @app.post("/file/upload_to_s3")
 async def upload_file(cmd: FileUploadRequest = Body()):
@@ -59,6 +104,7 @@ async def upload_file(cmd: FileUploadRequest = Body()):
     """
     try:
         file_path = Path(cmd.file_path).resolve()
+        _ensure_path_allowed(cmd.file_path)  # 403 on traversal/escape
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found")
         if not file_path.is_file():
@@ -129,6 +175,7 @@ async def multipart_upload(cmd: MultipartUploadRequest = Body(...)):
     try:
         print("1")
         file_path = Path(cmd.file_path).resolve()
+        _ensure_path_allowed(cmd.file_path)  # 403 on traversal/escape
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found")
         if not file_path.is_file():
@@ -180,6 +227,7 @@ async def get_file(path: str):
     """
     try:
         file_path = Path(path).resolve()
+        _ensure_path_allowed(path)  # 403 on traversal/escape
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found")
         if not file_path.is_file():
@@ -234,6 +282,11 @@ async def batch_download(cmd: DownloadRequest):
             if hasattr(cmd, "folder") and cmd.folder:
                 subfolder = cmd.folder.strip('/')
                 target_path = os.path.join(base_path, subfolder)
+            
+            try:
+                _ensure_path_allowed(target_path)
+            except HTTPException as e:
+                return DownloadResult(filename=file_name, success=False, error=str(e.detail))
             
             os.makedirs(target_path, exist_ok=True)
             file_path = os.path.join(target_path, file_name)
@@ -342,6 +395,8 @@ async def browser_action(cmd: BrowserActionRequest = Body()):
 async def text_editor_endpoint(cmd: TextEditorAction):
     """Endpoint for text editor"""
     try:
+        # Path-safety (Phase 3): reject traversal/symlink escapes before exec
+        _ensure_path_allowed(cmd.path)
         result = await text_editor.run_action(cmd)
         assert result.output, "text editor action must has an output"
         
@@ -370,7 +425,22 @@ terminal_socket_server = TerminalSocketServer()
 
 @app.websocket("/terminal")
 async def websocket_endpoint(ws: WebSocket):
-    """WebSocket endpoint for terminal connections."""
+    """WebSocket endpoint for terminal connections.
+
+    Phase 3: token checked BEFORE accept. Header `x-sandbox-token`
+    (or Authorization: Bearer), with `?token=` query param as fallback.
+    Rejected connections close with code 1008 (policy violation).
+    """
+    from app.auth import AuthError, verify_ws_token
+
+    try:
+        verify_ws_token(ws.headers, ws.query_params)
+    except AuthError as exc:
+        logger.error(f"WS auth failed: {exc.detail}")
+        # close (1008) *without* accepting: ASGI servers translate the
+        # pre-accept close into a rejected handshake.
+        await ws.close(code=1008, reason="missing or invalid sandbox token")
+        return
     await terminal_socket_server.handle_connection(ws)
 
 @app.post("/terminal/{terminal_id}/reset")
@@ -592,6 +662,8 @@ async def zip_and_upload(request: ZipAndUploadRequest):
     }
     """
     try:
+        # Path-safety (Phase 3): only zip directories inside allowed roots
+        _ensure_path_allowed(request.directory)
         # Check if directory exists
         if not os.path.exists(request.directory):
             return ZipAndUploadResponse(

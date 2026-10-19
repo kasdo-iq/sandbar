@@ -20,7 +20,7 @@ def test_healthz_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /healthz returns 200 and does not try to launch a real browser."""
     from app import server
 
-    async def _noop_initialize() -> None:  # noqa: RUF029
+    async def _noop_initialize() -> None:
         return None
 
     monkeypatch.setattr(server.browser_manager, "initialize", _noop_initialize)

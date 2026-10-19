@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 import anthropic
 from anthropic import APIConnectionError, APITimeoutError, RateLimitError
@@ -13,7 +14,6 @@ from app.llm.base import (
     Message,
     StreamEvent,
     ToolCall,
-    parse_tool_json,
 )
 
 _TOOL_USE_STOP = ["tool_use"]
@@ -31,12 +31,12 @@ class AnthropicProvider(LLMProvider):
         name: str,
         api_key: str,
         default_model: str,
-        base_url: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = 4096,
-        timeout: Optional[float] = None,
-        extra_headers: Optional[Dict[str, str]] = None,
-        system_prompt: Optional[str] = None,
+        base_url: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = 4096,
+        timeout: float | None = None,
+        extra_headers: dict[str, str] | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         self.name = name
         self._default_model = default_model
@@ -58,14 +58,14 @@ class AnthropicProvider(LLMProvider):
     # format conversion
     # ------------------------------------------------------------------
 
-    def _convert(self, messages: List[Message], system: str) -> tuple[str, List[Dict[str, Any]]]:
+    def _convert(self, messages: list[Message], system: str) -> tuple[str, list[dict[str, Any]]]:
         """Returns (system_text, anthropic_messages)."""
-        blocks: List[Dict[str, Any]] = []
+        blocks: list[dict[str, Any]] = []
         for msg in messages:
             if msg.role == "user":
                 blocks.append({"role": "user", "content": msg.content})
             elif msg.role == "assistant":
-                content: List[Dict[str, Any]] = []
+                content: list[dict[str, Any]] = []
                 if msg.content:
                     content.append({"type": "text", "text": msg.content})
                 for i, tc in enumerate(msg.tool_calls or []):
@@ -92,7 +92,7 @@ class AnthropicProvider(LLMProvider):
                     }
                 )
         # Anthropic requires alternating roles starting with "user"
-        merged: List[Dict[str, Any]] = []
+        merged: list[dict[str, Any]] = []
         for item in blocks:
             if merged and merged[-1]["role"] == item["role"]:
                 if isinstance(merged[-1]["content"], str):
@@ -107,7 +107,7 @@ class AnthropicProvider(LLMProvider):
         return system, merged
 
     @staticmethod
-    def _convert_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         converted = []
         for tool in tools:
             fn = tool.get("function", tool)
@@ -156,12 +156,12 @@ class AnthropicProvider(LLMProvider):
 
     async def chat(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **opts: Any,
     ) -> LLMResponse:
         system, convo = self.split_system_messages(messages)
@@ -169,7 +169,7 @@ class AnthropicProvider(LLMProvider):
             system = self._system_prompt
         system, convo = self._convert(convo, system)
         system = system or anthropic.NOT_GIVEN
-        kwargs: Dict[str, Any] = dict(opts)
+        kwargs: dict[str, Any] = dict(opts)
         resp = await self._client.messages.create(
             model=model or self._default_model,
             messages=convo,
@@ -183,12 +183,12 @@ class AnthropicProvider(LLMProvider):
 
     async def chat_stream(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **opts: Any,
     ) -> AsyncIterator[StreamEvent]:
         system, convo = self.split_system_messages(messages)
@@ -196,7 +196,7 @@ class AnthropicProvider(LLMProvider):
             system = self._system_prompt
         system, convo = self._convert(convo, system)
         model_name = model or self._default_model
-        usage_out: Dict[str, Any] = {}
+        usage_out: dict[str, Any] = {}
         async with self._client.messages.stream(
             model=model_name,
             messages=convo,

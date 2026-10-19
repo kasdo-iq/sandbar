@@ -7,10 +7,14 @@ OpenAI-compatible service) by wiring `base_url` from config.
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
-from openai import AsyncOpenAI
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AuthenticationError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AsyncOpenAI,
+)
 
 from app.llm.base import (
     LLMProvider,
@@ -40,12 +44,12 @@ class OpenAICompatibleProvider(LLMProvider):
         name: str,
         api_key: str,
         default_model: str,
-        base_url: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        timeout: Optional[float] = None,
-        extra_headers: Optional[Dict[str, str]] = None,
-        system_prompt: Optional[str] = None,
+        base_url: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+        extra_headers: dict[str, str] | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         self.name = name
         self._default_model = default_model
@@ -67,15 +71,15 @@ class OpenAICompatibleProvider(LLMProvider):
     # format conversion
     # ------------------------------------------------------------------
 
-    def _convert_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
+    def _convert_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         for msg in messages:
             if msg.role == "system":
                 out.append({"role": "system", "content": msg.content})
             elif msg.role == "user":
                 out.append({"role": "user", "content": msg.content})
             elif msg.role == "assistant":
-                item: Dict[str, Any] = {"role": "assistant", "content": msg.content or None}
+                item: dict[str, Any] = {"role": "assistant", "content": msg.content or None}
                 if msg.tool_calls:
                     item["tool_calls"] = [
                         {
@@ -100,7 +104,7 @@ class OpenAICompatibleProvider(LLMProvider):
         return out
 
     @staticmethod
-    def _convert_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Tools arrive already in OpenAI format: {type:name, function:{...}}.
 
         Accepts the common flat form {name, description, parameters} too.
@@ -126,22 +130,22 @@ class OpenAICompatibleProvider(LLMProvider):
     # calls
     # ------------------------------------------------------------------
 
-    def _with_system_prefix(self, messages: List[Message]) -> List[Message]:
+    def _with_system_prefix(self, messages: list[Message]) -> list[Message]:
         if self._system_prompt and not any(m.role == "system" for m in messages):
             return [Message(role="system", content=self._system_prompt), *messages]
         return messages
 
     async def chat(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **opts: Any,
     ) -> LLMResponse:
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "model": model or self._default_model,
             "messages": self._convert_messages(self._with_system_prefix(messages)),
         }
@@ -174,17 +178,17 @@ class OpenAICompatibleProvider(LLMProvider):
 
     async def chat_stream(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **opts: Any,
     ) -> AsyncIterator[StreamEvent]:
-        kwargs: Dict[str, Any] = {"stream": True, "stream_options": {"include_usage": True}}
+        kwargs: dict[str, Any] = {"stream": True, "stream_options": {"include_usage": True}}
         response_model = model or self._default_model
-        pending_calls: Dict[int, Dict[str, Any]] = {}
+        pending_calls: dict[int, dict[str, Any]] = {}
         async for chunk in await self._client.chat.completions.create(
             model=response_model,
             messages=self._convert_messages(self._with_system_prefix(messages)),

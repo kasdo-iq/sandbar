@@ -1,3 +1,4 @@
+import shlex
 import re
 from pathlib import Path
 from typing import List, Optional, Union, get_args
@@ -115,7 +116,7 @@ class TextEditor:
         Returns:
             ToolResult: The directory listing
         '''
-        cmd = f'ls -la "{path}"'
+        cmd = f'ls -la {shlex.quote(str(path))}'
         return_code, stdout, stderr = await run_shell(cmd)
         
         if return_code != 0:
@@ -211,8 +212,9 @@ class TextEditor:
         if not regex:
             raise ToolError("regex pattern cannot be empty")
             
-        # Construct the grep command
-        grep_cmd = f"{'sudo ' if sudo else ''}grep -n '{regex}' '{path}'"
+        # Construct the grep command (shlex.quote prevents injection via a
+        # crafted regex/path containing a single quote — AUDIT S5)
+        grep_cmd = f"{'sudo ' if sudo else ''}grep -n {shlex.quote(regex)} {shlex.quote(str(path))}"
         return_code, stdout, stderr = await run_shell(grep_cmd)
         
         # Read the file content for the file_info
@@ -251,8 +253,8 @@ class TextEditor:
         if not glob_pattern:
             glob_pattern = "*"
             
-        # Construct the find command
-        find_cmd = f"find '{path}' -type f -name '{glob_pattern}' | sort"
+        # Construct the find command (shlex.quote prevents glob/path injection)
+        find_cmd = f"find {shlex.quote(str(path))} -type f -name {shlex.quote(glob_pattern)} | sort"
         return_code, stdout, stderr = await run_shell(find_cmd)
         
         if return_code != 0:
@@ -287,8 +289,8 @@ class TextEditor:
         if path.is_dir():
             raise ToolError(f"Cannot read directory as file: {path}")
             
-        # Construct the cat command
-        cat_cmd = f"{'sudo ' if sudo else ''}cat '{path}'"
+        # Construct the cat command (shlex.quote prevents path injection)
+        cat_cmd = f"{'sudo ' if sudo else ''}cat {shlex.quote(str(path))}"
         return_code, stdout, stderr = await run_shell(cat_cmd)
         
         if return_code != 0:
@@ -342,8 +344,8 @@ class TextEditor:
             
         # Move the temporary file to the destination
         if sudo:
-            # Use sudo to move the file
-            mv_cmd = f"sudo mv '{temp_path}' '{path}'"
+            # Use sudo to move the file (shlex.quote prevents path injection)
+            mv_cmd = f"sudo mv {shlex.quote(str(temp_path))} {shlex.quote(str(path))}"
             return_code, stdout, stderr = await run_shell(mv_cmd)
             
             if return_code != 0:

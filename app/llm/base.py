@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator, Dict, List, Literal, Optional
+from collections.abc import AsyncIterator
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -18,7 +19,7 @@ class ToolCall(BaseModel):
 
     id: str = ""
     name: str
-    arguments: Dict[str, Any] = Field(default_factory=dict)
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class Message(BaseModel):
@@ -31,9 +32,9 @@ class Message(BaseModel):
 
     role: Literal["system", "user", "assistant", "tool"]
     content: str
-    name: Optional[str] = None
-    tool_call_id: Optional[str] = None
-    tool_calls: Optional[List[ToolCall]] = None
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class LLMResponse(BaseModel):
@@ -42,11 +43,11 @@ class LLMResponse(BaseModel):
     provider: str
     model: str
     content: str = ""
-    tool_calls: List[ToolCall] = Field(default_factory=list)
-    usage: Optional[Dict[str, Any]] = None
-    finish_reason: Optional[str] = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    usage: dict[str, Any] | None = None
+    finish_reason: str | None = None
 
-    def model_dump_safe(self) -> Dict[str, Any]:
+    def model_dump_safe(self) -> dict[str, Any]:
         """Serializer used by endpoints (excludes nothing sensitive)."""
         return self.model_dump()
 
@@ -62,11 +63,11 @@ class StreamEvent(BaseModel):
 
     type: Literal["delta", "tool_call", "final", "error"]
     content: str = ""
-    tool_call: Optional[ToolCall] = None
-    response: Optional[LLMResponse] = None
+    tool_call: ToolCall | None = None
+    response: LLMResponse | None = None
 
 
-def parse_tool_json(raw: str | bytes | None) -> Dict[str, Any]:
+def parse_tool_json(raw: str | bytes | None) -> dict[str, Any]:
     """Best-effort parse of a tool-arguments JSON payload, always dict."""
     if raw in (None, ""):
         return {}
@@ -96,12 +97,12 @@ class LLMProvider(ABC):
     @abstractmethod
     async def chat(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **opts: Any,
     ) -> LLMResponse:
         """Send a chat completion request in normalized format."""
@@ -109,12 +110,12 @@ class LLMProvider(ABC):
     @abstractmethod
     def chat_stream(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **opts: Any,
     ) -> AsyncIterator[StreamEvent]:
         """Stream deltas as normalized StreamEvents."""
@@ -125,7 +126,7 @@ class LLMProvider(ABC):
         """Model used when the caller does not override it."""
 
     @staticmethod
-    def split_system_messages(messages: List[Message]) -> tuple[str, List[Message]]:
+    def split_system_messages(messages: list[Message]) -> tuple[str, list[Message]]:
         """Extract system text and the remaining conversation, in order."""
         system_parts, rest = [], []
         for msg in messages:

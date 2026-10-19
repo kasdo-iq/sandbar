@@ -8,8 +8,14 @@ import pytest
 
 from app.llm import registry as llm_registry
 from app.llm.base import Message
-from app.llm.registry import LLMError
-from app.llm.registry import RegistryConfig, ProviderConfig, build_provider, get_registry, load_config
+from app.llm.registry import (
+    LLMError,
+    ProviderConfig,
+    RegistryConfig,
+    build_provider,
+    get_registry,
+    load_config,
+)
 
 
 @pytest.fixture(autouse=True)

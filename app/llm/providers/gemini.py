@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from google import genai
 from google.genai import types as gtypes
@@ -29,18 +30,18 @@ class GeminiProvider(LLMProvider):
         name: str,
         api_key: str,
         default_model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        timeout: Optional[float] = None,
-        system_prompt: Optional[str] = None,
-        extra_headers: Optional[Dict[str, str]] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+        system_prompt: str | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         self.name = name
         self._default_model = default_model
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._system_prompt = system_prompt
-        kwargs: Dict[str, Any] = {"api_key": api_key}
+        kwargs: dict[str, Any] = {"api_key": api_key}
         if timeout:
             kwargs["http_options"] = gtypes.HttpOptions(timeout=f"{int(timeout * 1000)}ms")
         if extra_headers:
@@ -59,10 +60,10 @@ class GeminiProvider(LLMProvider):
     # format conversion
     # ------------------------------------------------------------------
 
-    def _convert(self, messages: List[Message]) -> List[Dict[str, Any]]:
+    def _convert(self, messages: list[Message]) -> list[dict[str, Any]]:
         """Map normalized messages to Gemini contents entries (dict form)."""
-        contents: List[Dict[str, Any]] = []
-        pending_calls: Dict[str, str] = {}
+        contents: list[dict[str, Any]] = []
+        pending_calls: dict[str, str] = {}
         for msg in messages:
             if msg.role == "assistant" and msg.tool_calls:
                 parts = [{"text": msg.content} if msg.content else {"text": ""}]
@@ -96,7 +97,7 @@ class GeminiProvider(LLMProvider):
                 contents.append({"role": role, "parts": [{"text": msg.content}]})
         return contents
 
-    def _convert_tools(self, tools: List[Dict[str, Any]]) -> List[Any]:
+    def _convert_tools(self, tools: list[dict[str, Any]]) -> list[Any]:
         decls = []
         for tool in tools:
             fn = tool.get("function", tool)
@@ -112,9 +113,9 @@ class GeminiProvider(LLMProvider):
             )
         return [gtypes.Tool(function_declarations=decls)]
 
-    def _parse(self, model: str, response: Any) -> tuple[str, List[ToolCall], Optional[Dict[str, Any]]]:
-        text_parts: List[str] = []
-        calls: List[ToolCall] = []
+    def _parse(self, model: str, response: Any) -> tuple[str, list[ToolCall], dict[str, Any] | None]:
+        text_parts: list[str] = []
+        calls: list[ToolCall] = []
         usage = None
         candidate = None
         if response.candidates:
@@ -141,12 +142,12 @@ class GeminiProvider(LLMProvider):
 
     async def chat(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **opts: Any,
     ) -> LLMResponse:
         system, convo = self.split_system_messages(messages)
@@ -175,19 +176,19 @@ class GeminiProvider(LLMProvider):
 
     async def chat_stream(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **opts: Any,
     ) -> AsyncIterator[StreamEvent]:
         system, convo = self.split_system_messages(messages)
         if not system and self._system_prompt:
             system = self._system_prompt
         model_name = model or self._default_model
-        final_text: List[str] = []
+        final_text: list[str] = []
         async for chunk in await self._client.aio.models.generate_content_stream(
             model=model_name,
             contents=self._convert(convo),  # type: ignore[arg-type]
@@ -199,7 +200,7 @@ class GeminiProvider(LLMProvider):
                 **opts,
             ),
         ):
-            content, calls, usage = self._parse(model_name, chunk)
+            content, calls, _ = self._parse(model_name, chunk)
             if content:
                 final_text.append(content)
                 yield StreamEvent(type="delta", content=content)

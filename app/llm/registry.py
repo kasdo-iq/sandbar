@@ -12,20 +12,21 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
-
-from app.logger import logger
-from app.llm.base import LLMProvider, LLMResponse, Message, StreamEvent
+from anthropic import AuthenticationError as AnthropicAuthError
+from anthropic import RateLimitError as AnthropicRateLimit
+from openai import AuthenticationError as OpenAIAuthError
 
 # exceptions the SDK exposes for rate limiting
 from openai import RateLimitError as OpenAIRateLimit
-from openai import AuthenticationError as OpenAIAuthError
-import anthropic as _anthropic
-from anthropic import RateLimitError as AnthropicRateLimit, AuthenticationError as AnthropicAuthError
+from pydantic import BaseModel, Field
+
+from app.llm.base import LLMProvider, LLMResponse, Message, StreamEvent
+from app.logger import logger
 
 
 class ProviderConfig(BaseModel):
@@ -36,30 +37,30 @@ class ProviderConfig(BaseModel):
     enabled: bool = True
     api_key_env: str = ""
     model: str = ""
-    base_url: Optional[str] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    timeout: Optional[float] = 60.0
-    extra_headers: Dict[str, str] = Field(default_factory=dict)
-    system_prompt: Optional[str] = None
+    base_url: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    timeout: float | None = 60.0
+    extra_headers: dict[str, str] = Field(default_factory=dict)
+    system_prompt: str | None = None
 
 
 class RegistryConfig(BaseModel):
     default_provider: str = ""
-    fallback: List[str] = Field(default_factory=list)
+    fallback: list[str] = Field(default_factory=list)
     retries_per_provider: int = 1
     backoff_seconds: float = 1.0
-    providers: List[ProviderConfig] = Field(default_factory=list)
+    providers: list[ProviderConfig] = Field(default_factory=list)
 
 
 class LLMError(RuntimeError):
     """Raised when no provider could serve the request."""
 
 
-def load_config(path: Optional[str] = None) -> RegistryConfig:
+def load_config(path: str | None = None) -> RegistryConfig:
     """Load providers.yaml + env overrides (env wins)."""
     cfg_path = path or os.getenv("PROVIDERS_CONFIG") or "providers.yaml"
-    raw: Dict[str, Any] = {}
+    raw: dict[str, Any] = {}
     p = Path(cfg_path)
     if p.is_file():
         raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
@@ -108,17 +109,21 @@ def build_provider(cfg: ProviderConfig) -> LLMProvider:
             f"provider '{cfg.name}': env var {cfg.api_key_env} is not set — "
             f"add it to your .env / environment to use this provider"
         )
-    common = dict(
-        name=cfg.name,
-        api_key=key,
-        default_model=cfg.model,
-        temperature=cfg.temperature,
-        max_tokens=cfg.max_tokens,
-        timeout=cfg.timeout,
-        extra_headers=cfg.extra_headers,
-        system_prompt=cfg.system_prompt,
+    common: dict[str, Any] = {
+        "name": cfg.name,
+        "api_key": key,
+        "default_model": cfg.model,
+        "temperature": cfg.temperature,
+        "max_tokens": cfg.max_tokens,
+        "timeout": cfg.timeout,
+        "extra_headers": cfg.extra_headers,
+        "system_prompt": cfg.system_prompt,
+    }
+    from app.llm.providers import (
+        AnthropicProvider,
+        GeminiProvider,
+        OpenAICompatibleProvider,
     )
-    from app.llm.providers import AnthropicProvider, GeminiProvider, OpenAICompatibleProvider
 
     fam = cfg.api_family
     if fam == "openai-compatible":
@@ -133,10 +138,10 @@ def build_provider(cfg: ProviderConfig) -> LLMProvider:
 class LLMRegistry:
     """Holds provider instances; routes chat traffic with fallback + retry."""
 
-    def __init__(self, config: Optional[RegistryConfig] = None) -> None:
+    def __init__(self, config: RegistryConfig | None = None) -> None:
         self.config = config or load_config()
-        self.providers: Dict[str, LLMProvider] = {}
-        self.construction_errors: Dict[str, str] = {}
+        self.providers: dict[str, LLMProvider] = {}
+        self.construction_errors: dict[str, str] = {}
         for pc in self.config.providers:
             try:
                 self.providers[pc.name] = build_provider(pc)
@@ -147,7 +152,7 @@ class LLMRegistry:
 
     # ------------------------------------------------------------------
 
-    def _route(self, provider: Optional[str], model: Optional[str]) -> List[str]:
+    def _route(self, provider: str | None, model: str | None) -> list[str]:
         """Return the ordered candidate list for this request."""
         primary = provider or self.config.default_provider
         order = [primary] if primary else []
@@ -167,17 +172,17 @@ class LLMRegistry:
             raise LLMError(self.construction_errors.get(name, f"provider '{name}' not available"))
         return prov
 
-    async def _invoke_chat(self, name: str, messages: List[Message], model: Optional[str], tools: Optional[List[Dict[str, Any]]], opts: Dict[str, Any]) -> LLMResponse:
+    async def _invoke_chat(self, name: str, messages: list[Message], model: str | None, tools: list[dict[str, Any]] | None, opts: dict[str, Any]) -> LLMResponse:
         prov = self._provider_running(name)
         return await prov.chat(messages, model=model, tools=tools, **opts)
 
     async def chat(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        provider: str | None = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **opts: Any,
     ) -> LLMResponse:
         """Non-streaming chat with fallback list and per-provider retry."""
@@ -206,11 +211,11 @@ class LLMRegistry:
 
     async def stream_chat(
         self,
-        messages: List[Message],
+        messages: list[Message],
         *,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        provider: str | None = None,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
         **opts: Any,
     ) -> AsyncIterator[StreamEvent]:
         """Streaming chat. Falls back *before* the first token is emitted;
@@ -235,7 +240,7 @@ class LLMRegistry:
 
     # ------------------------------------------------------------------
 
-    def describe(self) -> List[Dict[str, Any]]:
+    def describe(self) -> list[dict[str, Any]]:
         """Provider listing for GET /llm/providers — never includes keys."""
         by_name = {p.name: p for p in self.config.providers}
         return [
@@ -254,10 +259,10 @@ class LLMRegistry:
         ]
 
 
-_instance: Optional[LLMRegistry] = None
+_instance: LLMRegistry | None = None
 
 
-def get_registry(config: Optional[RegistryConfig] = None) -> LLMRegistry:
+def get_registry(config: RegistryConfig | None = None) -> LLMRegistry:
     """Process-wide registry (lazy singleton; reload with reset_registry)."""
     global _instance
     if _instance is None or config is not None:

@@ -7,13 +7,13 @@ POST /llm/chat      — one-shot or SSE-streaming chat
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from app.llm.base import LLMResponse, Message
+from app.llm.base import Message
 from app.llm.registry import LLMError, get_registry
 
 llm_router = APIRouter(prefix="/llm", tags=["llm"])
@@ -27,21 +27,21 @@ class ChatRequest(BaseModel):
         {"type":"function","function":{"name":..,"description":..,"parameters":{...}}}
     """
 
-    messages: List[Message]
-    provider: Optional[str] = None
-    model: Optional[str] = None
-    tools: Optional[List[Dict[str, Any]]] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
+    messages: list[Message]
+    provider: str | None = None
+    model: str | None = None
+    tools: list[dict[str, Any]] | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
     stream: bool = False
 
 
-def _sse(event: str, payload: Dict[str, Any]) -> str:
+def _sse(event: str, payload: dict[str, Any]) -> str:
     return f"data: {json.dumps({**payload, 'type': event}, ensure_ascii=False)}\n\n"
 
 
 @llm_router.get("/providers")
-def list_providers() -> List[Dict[str, Any]]:
+def list_providers() -> list[dict[str, Any]]:
     """List configured providers. Never returns API keys."""
     return get_registry().describe()
 
@@ -78,7 +78,7 @@ async def chat(req: ChatRequest):
                 temperature=req.temperature,
                 max_tokens=req.max_tokens,
             ):
-                payload: Dict[str, Any] = {}
+                payload: dict[str, Any] = {}
                 if ev.content:
                     payload["content"] = ev.content
                 if ev.tool_call is not None:

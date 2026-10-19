@@ -16,7 +16,6 @@ passing their own Claude/ChatAnthropic instance to `Agent`.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -28,7 +27,7 @@ _GEMINI_OPENAI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 
 def _openai_chat_model(
-    api_key: str, base_url: Optional[str], model: str, temperature: Optional[float] = None
+    api_key: str, base_url: str | None, model: str, temperature: float | None = None
 ) -> ChatOpenAI:
     return ChatOpenAI(
         model=model,
@@ -39,9 +38,9 @@ def _openai_chat_model(
 
 
 def get_browser_use_llm(
-    provider_name: Optional[str] = None,
-    model: Optional[str] = None,
-    temperature: Optional[float] = None,
+    provider_name: str | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
 ) -> object:
     """Build a LangChain chat model from the configured provider chain.
 

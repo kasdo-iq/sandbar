@@ -5,6 +5,7 @@ import uvicorn
 
 from app.logger import logger
 from app.server import app
+from app.auth import ensure_server_auth_config
 
 def parse_args():
     """Parse command line arguments."""
@@ -44,6 +45,10 @@ def parse_args():
 if __name__ == '__main__':
     # Parse command-line arguments
     args = parse_args()
+    
+    # Fail closed (Phase 3): refuse to start without SANDBOX_API_TOKEN
+    # unless AUTH_DISABLED=true is explicitly set.
+    ensure_server_auth_config()
     
     # Set Chrome instance path if provided
     if args.chrome_path:
