@@ -89,7 +89,7 @@ Env overrides (win over YAML): `LLM_DEFAULT_PROVIDER`, `LLM_FALLBACK`, and per-p
 
 `GET /tools` lists every registered tool with its JSON Schema; `POST /tools/{name}/run` executes one (body = the arguments object, or `{"arguments": {...}}`).
 
-Built-in tools: `text_editor`, `terminal`, `browser` (wrappers around the unchanged Manus endpoints), plus `python_exec` (subprocess with timeout + POSIX rlimit), `web_fetch` (SSRF-guarded, redirect re-validated, size/time caps), `web_search` (Tavily/Brave/SearXNG — self-disables without keys), `file_search`, `git`, `http_download`, `process_manager`.
+Built-in tools: `text_editor`, `terminal`, `browser` (wrappers around the unchanged Manus endpoints), plus `python_exec` (subprocess with timeout + POSIX rlimit), `web_fetch` (SSRF-guarded, redirect re-validated, size/time caps), `web_search` (Tavily/Parallel/SearXNG — self-disables without keys), `file_search`, `git`, `http_download`, `process_manager`.
 
 **Custom tools**: drop a `.py` file in `custom_tools/` exposing `TOOL = ToolSpec(name=..., description=..., input_schema={...}, run=async fn)` — auto-discovered at startup (`CUSTOM_TOOLS_DIR` overrides the folder).
 
@@ -121,7 +121,7 @@ It streams SSE step events (`step_start`, `assistant_text`, `tool_call`, `tool_r
 | `LLM_DEFAULT_PROVIDER`, `LLM_FALLBACK` | routing overrides | — |
 | `LLM_<NAME>_*` | per-provider overrides | — |
 | `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` | provider keys (referenced by `api_key_env`) | — |
-| `TAVILY_API_KEY`, `BRAVE_API_KEY`, `SEARXNG_URL` | web_search backends | — |
+| `TAVILY_API_KEY`, `PARALLEL_API_KEY`, `SEARXNG_URL` | web_search backends (Parallel mode via `PARALLEL_SEARCH_MODE`, default `fast`) | — |
 | `SANDBOX_ALLOWED_ROOTS` | comma-separated file-access roots (traversal/symlink-escape guard) | working dir (`/home/ubuntu` in container) |
 | `SANDBOX_ALLOW_SUDO` | set by Dockerfile from the `ALLOW_SUDO` build arg | `true` |
 | `CUSTOM_TOOLS_DIR`, `AGENT_MAX_STEPS`, `AGENT_TOTAL_TIMEOUT`, `AGENT_SYSTEM_PROMPT`, `AGENT_OUTPUT_MAX_CHARS` | agent loop tuning | `custom_tools`, 15, 300, built-in, 16000 |

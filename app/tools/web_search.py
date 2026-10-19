@@ -1,6 +1,6 @@
-"""web_search tool: Tavily / Brave / SearXNG chosen automatically by env.
+"""web_search tool: Tavily / Parallel / SearXNG chosen automatically by env.
 
-Backend priority: TAVILY_API_KEY > BRAVE_API_KEY > SEARXNG_URL.
+Backend priority: TAVILY_API_KEY > PARALLEL_API_KEY > SEARXNG_URL.
 All keys come from the env; with none configured the tool self-disables
 (with a status='disabled' result instead of an error).
 """
@@ -33,23 +33,38 @@ async def _tavily(query: str, count: int) -> list[dict[str, Any]]:
     ]
 
 
-async def _brave(query: str, count: int) -> list[dict[str, Any]]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            params={"q": query, "count": count},
+async def _parallel(query: str, count: int) -> list[dict[str, Any]]:
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            "https://api.parallel.ai/v1/search",
+            json={
+                "objective": query,
+                "search_queries": [query],
+                "mode": os.getenv("PARALLEL_SEARCH_MODE", "fast"),
+            },
             headers={
-                "X-Subscription-Token": os.environ["BRAVE_API_KEY"],
-                "Accept": "application/json",
+                "x-api-key": os.environ["PARALLEL_API_KEY"],
+                "Content-Type": "application/json",
             },
         )
         resp.raise_for_status()
         data = resp.json()
-    results = data.get("web", {}).get("results", [])[:count]
-    return [
-        {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("description", "")}
-        for r in results
-    ]
+    return _parse_parallel_results(data, count)
+
+
+def _parse_parallel_results(data: dict[str, Any], count: int) -> list[dict[str, Any]]:
+    """Map Parallel's {url, title, excerpts[]} to the common {title, url, snippet} shape."""
+    parsed: list[dict[str, Any]] = []
+    for r in data.get("results", [])[:count]:
+        excerpts = [e for e in (r.get("excerpts") or []) if e]
+        parsed.append(
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "snippet": excerpts[0] if excerpts else "",
+            }
+        )
+    return parsed
 
 
 async def _searxng(query: str, count: int) -> list[dict[str, Any]]:
@@ -67,8 +82,8 @@ async def _searxng(query: str, count: int) -> list[dict[str, Any]]:
 def _pick_backend() -> tuple[str, Any] | None:
     if os.getenv("TAVILY_API_KEY"):
         return "tavily", _tavily
-    if os.getenv("BRAVE_API_KEY"):
-        return "brave", _brave
+    if os.getenv("PARALLEL_API_KEY"):
+        return "parallel", _parallel
     if os.getenv("SEARXNG_URL"):
         return "searxng", _searxng
     return None
@@ -83,7 +98,7 @@ async def run_web_search(arguments: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "disabled",
             "error": (
-                "web_search is disabled: set TAVILY_API_KEY, BRAVE_API_KEY "
+                "web_search is disabled: set TAVILY_API_KEY, PARALLEL_API_KEY "
                 "or SEARXNG_URL to enable it"
             ),
         }
@@ -105,7 +120,7 @@ async def run_web_search(arguments: dict[str, Any]) -> dict[str, Any]:
 TOOL = ToolSpec(
     name="web_search",
     description=(
-        "Web search via the configured backend (Tavily/Brave/SearXNG). "
+        "Web search via the configured backend (Tavily/Parallel/SearXNG). "
         "Returns titles, URLs and snippets. Disabled with a clear message "
         "when no API key is configured."
     ),

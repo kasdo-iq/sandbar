@@ -100,10 +100,40 @@ def test_web_search_disabled_without_keys(monkeypatch: pytest.MonkeyPatch) -> No
     from app.tools import web_search as ws
 
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    monkeypatch.delenv("PARALLEL_API_KEY", raising=False)
     monkeypatch.delenv("SEARXNG_URL", raising=False)
     result = asyncio.run(ws.run_web_search({"query": "test"}))
     assert result["status"] == "disabled"
+
+
+@pytest.mark.smoke
+def test_web_search_backend_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.tools import web_search as ws
+
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("SEARXNG_URL", raising=False)
+    monkeypatch.setenv("PARALLEL_API_KEY", "k")
+    assert ws._pick_backend() == ("parallel", ws._parallel)
+    monkeypatch.setenv("TAVILY_API_KEY", "t")
+    assert ws._pick_backend()[0] == "tavily"  # tavily keeps priority
+
+
+@pytest.mark.smoke
+def test_web_search_parallel_result_mapping() -> None:
+    from app.tools.web_search import _parse_parallel_results
+
+    data = {
+        "results": [
+            {"title": "T1", "url": "https://a.example", "excerpts": ["alpha text", "more"]},
+            {"title": "T2", "url": "https://b.example", "excerpts": []},
+            {"title": "over the limit", "url": "https://c.example", "excerpts": ["x"]},
+        ]
+    }
+    parsed = _parse_parallel_results(data, 2)
+    assert parsed == [
+        {"title": "T1", "url": "https://a.example", "snippet": "alpha text"},
+        {"title": "T2", "url": "https://b.example", "snippet": ""},
+    ]
 
 
 @pytest.mark.smoke
