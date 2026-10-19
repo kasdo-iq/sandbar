@@ -18,6 +18,22 @@ from app.tools.registry import ToolSpec
 
 RESULT_LIMIT_DEFAULT = 5
 
+# Parallel Search mode presets accepted by the API (see docs.parallel.ai).
+PARALLEL_MODES = ("turbo", "fast", "basic", "advanced")
+PARALLEL_EXCERPT_MAX_CHARS = 800
+
+
+def _parallel_mode() -> str:
+    """Env-configured Parallel search mode, falling back to 'fast' when invalid."""
+    mode = (os.getenv("PARALLEL_SEARCH_MODE") or "fast").strip().lower()
+    if mode not in PARALLEL_MODES:
+        logger.warning(
+            f"[web_search] invalid PARALLEL_SEARCH_MODE={mode!r}; using 'fast' "
+            f"(valid: {', '.join(PARALLEL_MODES)})"
+        )
+        return "fast"
+    return mode
+
 
 async def _tavily(query: str, count: int) -> list[dict[str, Any]]:
     async with httpx.AsyncClient(timeout=30) as client:
@@ -40,7 +56,11 @@ async def _parallel(query: str, count: int) -> list[dict[str, Any]]:
             json={
                 "objective": query,
                 "search_queries": [query],
-                "mode": os.getenv("PARALLEL_SEARCH_MODE", "fast"),
+                "mode": _parallel_mode(),
+                # keep excerpts close to the previous Brave snippet size
+                "advanced_settings": {
+                    "excerpt_settings": {"max_chars_per_result": PARALLEL_EXCERPT_MAX_CHARS}
+                },
             },
             headers={
                 "x-api-key": os.environ["PARALLEL_API_KEY"],
@@ -59,7 +79,7 @@ def _parse_parallel_results(data: dict[str, Any], count: int) -> list[dict[str, 
         excerpts = [e for e in (r.get("excerpts") or []) if e]
         parsed.append(
             {
-                "title": r.get("title", ""),
+                "title": r.get("title") or "",  # API may send title: null
                 "url": r.get("url", ""),
                 "snippet": excerpts[0] if excerpts else "",
             }
@@ -121,8 +141,9 @@ TOOL = ToolSpec(
     name="web_search",
     description=(
         "Web search via the configured backend (Tavily/Parallel/SearXNG). "
-        "Returns titles, URLs and snippets. Disabled with a clear message "
-        "when no API key is configured."
+        "Returns titles, URLs and snippets. Use short keyword queries "
+        "(3-6 words); prefer several focused searches over one long question. "
+        "Disabled with a clear message when no API key is configured."
     ),
     input_schema={
         "type": "object",

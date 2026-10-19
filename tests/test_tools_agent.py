@@ -126,14 +126,99 @@ def test_web_search_parallel_result_mapping() -> None:
         "results": [
             {"title": "T1", "url": "https://a.example", "excerpts": ["alpha text", "more"]},
             {"title": "T2", "url": "https://b.example", "excerpts": []},
-            {"title": "over the limit", "url": "https://c.example", "excerpts": ["x"]},
+            {"title": None, "url": "https://c.example", "excerpts": ["gamma"]},
+            {"title": "over the limit", "url": "https://d.example", "excerpts": ["x"]},
         ]
     }
-    parsed = _parse_parallel_results(data, 2)
+    parsed = _parse_parallel_results(data, 3)
     assert parsed == [
         {"title": "T1", "url": "https://a.example", "snippet": "alpha text"},
         {"title": "T2", "url": "https://b.example", "snippet": ""},
+        # title: null must not leak through as None
+        {"title": "", "url": "https://c.example", "snippet": "gamma"},
     ]
+
+
+@pytest.mark.smoke
+def test_web_search_parallel_mode_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.tools import web_search as ws
+
+    monkeypatch.setenv("PARALLEL_SEARCH_MODE", "turbo")
+    assert ws._parallel_mode() == "turbo"
+    monkeypatch.setenv("PARALLEL_SEARCH_MODE", " Advanced ")
+    assert ws._parallel_mode() == "advanced"
+    monkeypatch.setenv("PARALLEL_SEARCH_MODE", "turboo")  # typo -> safe default
+    assert ws._parallel_mode() == "fast"
+    monkeypatch.delenv("PARALLEL_SEARCH_MODE", raising=False)
+    assert ws._parallel_mode() == "fast"
+
+
+@pytest.mark.smoke
+def test_web_search_parallel_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.tools import web_search as ws
+
+    captured: dict = {}
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"results": [{"url": "https://x.example", "title": None, "excerpts": ["body"]}]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, *exc) -> bool:
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            captured.update(url=url, json=json, headers=headers)
+            return FakeResponse()
+
+    monkeypatch.setenv("PARALLEL_API_KEY", "test-key")
+    monkeypatch.setenv("PARALLEL_SEARCH_MODE", "nonsense")  # falls back to fast
+    monkeypatch.setattr(ws.httpx, "AsyncClient", FakeClient)
+
+    results = asyncio.run(ws._parallel("fastapi release", 5))
+
+    assert captured["url"] == "https://api.parallel.ai/v1/search"
+    assert captured["headers"]["x-api-key"] == "test-key"
+    assert captured["json"]["search_queries"] == ["fastapi release"]
+    assert captured["json"]["mode"] == "fast"
+    assert captured["json"]["advanced_settings"] == {
+        "excerpt_settings": {"max_chars_per_result": 800}
+    }
+    assert results == [{"title": "", "url": "https://x.example", "snippet": "body"}]
+
+
+@pytest.mark.smoke
+def test_web_search_error_path_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from app.tools import web_search as ws
+
+    async def failing_backend(query: str, count: int) -> list:
+        await asyncio.sleep(0)
+        request = httpx.Request("POST", "https://api.parallel.ai/v1/search")
+        response = httpx.Response(
+            422,
+            request=request,
+            json={"type": "error", "error": {"ref_id": "r1", "message": "Request validation error"}},
+        )
+        response.raise_for_status()
+        return []
+
+    monkeypatch.setattr(ws, "_pick_backend", lambda: ("parallel", failing_backend))
+    result = asyncio.run(ws.run_web_search({"query": "test"}))
+
+    assert result["status"] == "error"
+    assert result["error"].startswith("parallel:")
+    assert "422" in result["error"]
 
 
 @pytest.mark.smoke
