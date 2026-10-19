@@ -2,25 +2,27 @@ import asyncio
 import json
 import os
 import re
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime
 from signal import SIGTERM
-from typing import Any, AsyncGenerator, cast
+from typing import Any, cast
 
 import pexpect
 from pexpect.expect import searcher_re
 
 from app.helpers.utils import truncate_text_from_back
 from app.logger import logger
+from app.tools.base import DEFAULT_USER, DEFAULT_WORKING_DIR, IS_INSIDE_CONTAINER
+from app.tools.terminal.expecter import MyExpecter
+from app.tools.terminal.terminal_helpers import (
+    process_terminal_output,
+    split_bash_commands,
+)
 from app.types.messages import (
     TerminalInputMessage,
     TerminalOutputMessage,
-    TerminalOutputMessageType,
-    TerminalStatus
 )
-from app.tools.base import DEFAULT_USER, DEFAULT_WORKING_DIR, IS_INSIDE_CONTAINER
-from app.tools.terminal.expecter import MyExpecter
-from app.tools.terminal.terminal_helpers import process_terminal_output, split_bash_commands
 
 # Constants for terminal configuration
 PS1 = '[CMD_BEGIN]\\n\\u@\\h:\\w\\n[CMD_END]'

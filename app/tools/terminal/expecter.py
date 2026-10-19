@@ -1,10 +1,11 @@
 import asyncio
 import json
 import re
-from typing import AsyncGenerator, Awaitable, Callable, Tuple
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from pexpect.exceptions import EOF, TIMEOUT
 from pexpect.expect import Expecter
+
 
 class MyExpecter(Expecter):
     """
@@ -16,7 +17,7 @@ class MyExpecter(Expecter):
         self, 
         PS1_REG, 
         get_user_input: Callable[[], Awaitable[bytes]]
-    ) -> AsyncGenerator[Tuple[bool, bytes], None]:
+    ) -> AsyncGenerator[tuple[bool, bytes], None]:
         """
         Asynchronous expect loop that handles terminal interactions.
         

@@ -194,4 +194,4 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 # late import to avoid a cycle
-from app.logger import logger
+from app.logger import logger  # noqa: E402

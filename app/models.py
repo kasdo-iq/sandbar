@@ -1,5 +1,6 @@
+
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+
 
 class PresignedUrlPart(BaseModel):
     part_number: int
@@ -7,19 +8,19 @@ class PresignedUrlPart(BaseModel):
 
 class MultipartUploadRequest(BaseModel):
     file_path: str
-    presigned_urls: List[PresignedUrlPart]
+    presigned_urls: list[PresignedUrlPart]
     part_size: int
 
 class PartUploadResult(BaseModel):
     part_number: int
-    etag: Optional[str] = ""
+    etag: str | None = ""
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 class MultipartUploadResponse(BaseModel):
     status: str
     message: str
     file_name: str
-    parts_results: List[PartUploadResult]
+    parts_results: list[PartUploadResult]
     successful_parts: int
     failed_parts: int

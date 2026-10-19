@@ -1,7 +1,20 @@
 from pydantic import BaseModel
+
 from browser_use.agent.views import ActionModel
-from browser_use.controller.views import ClickElementAction, GoToUrlAction, InputTextAction, OpenTabAction, ScrollAction, SearchGoogleAction, SendKeysAction, SwitchTabAction
-from browser_use.controller.views import ExtractPageContentAction as BaseExtractPageContentAction
+from browser_use.controller.views import (
+    ClickElementAction,
+    GoToUrlAction,
+    InputTextAction,
+    OpenTabAction,
+    ScrollAction,
+    SearchGoogleAction,
+    SendKeysAction,
+    SwitchTabAction,
+)
+from browser_use.controller.views import (
+    ExtractPageContentAction as BaseExtractPageContentAction,
+)
+
 
 class NoParamAction(BaseModel):
     pass

@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import os
-from typing import List
-import aiohttp
 from urllib.parse import quote
+
+import aiohttp
+
 from app.models import PartUploadResult, PresignedUrlPart
 
 logger = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ class FilePartReader:
         self._file.seek(offset)
         return self._file.read(self.part_size)
 
-async def upload_file_parts(file_path, presigned_urls: List[PresignedUrlPart], part_size, max_concurrent: int = 5) -> List[PartUploadResult]:
+async def upload_file_parts(file_path, presigned_urls: list[PresignedUrlPart], part_size, max_concurrent: int = 5) -> list[PartUploadResult]:
     '''
     并发上传文件分片 (Concurrently upload file parts)
     

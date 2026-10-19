@@ -1,13 +1,19 @@
 import shlex
-import re
 from pathlib import Path
-from typing import List, Optional, Union, get_args
+from typing import get_args
+
 from pydantic import BaseModel
 
-from app.helpers.tool_helpers import MAX_RESPONSE_LEN, TRUNCATED_MESSAGE, maybe_truncate, run_shell
+from app.helpers.tool_helpers import (
+    MAX_RESPONSE_LEN,
+    TRUNCATED_MESSAGE,
+    maybe_truncate,
+    run_shell,
+)
+from app.tools.base import DEFAULT_WORKING_DIR, ToolError
 from app.types.messages import FileInfo, TextEditorAction
 from app.types.messages import TextEditorCommand as Command
-from app.tools.base import DEFAULT_WORKING_DIR, ToolError
+
 
 class ToolResult(BaseModel):
     output: str
@@ -70,7 +76,7 @@ class TextEditor:
         except ToolError as e:
             return ToolResult(output=f"Error: {e.message}")
         except Exception as e:
-            return ToolResult(output=f"Unexpected error: {str(e)}")
+            return ToolResult(output=f"Unexpected error: {e!s}")
 
     def validate_path(self, command: Command, path: Path) -> Path:
         '''
@@ -124,7 +130,7 @@ class TextEditor:
             
         return ToolResult(output=f"Directory contents of {path}:\n\n{stdout}")
 
-    async def view(self, path: Path, view_range: Optional[List[int]], sudo: bool) -> ToolResult:
+    async def view(self, path: Path, view_range: list[int] | None, sudo: bool) -> ToolResult:
         '''
         View the content of a file.
         
@@ -322,7 +328,7 @@ class TextEditor:
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                raise ToolError(f"Failed to create directory {path.parent}: {str(e)}")
+                raise ToolError(f"Failed to create directory {path.parent}: {e!s}")
                 
         # Prepare the content
         if leading_newline and not content.startswith('\n'):
@@ -355,7 +361,7 @@ class TextEditor:
             try:
                 temp_path.replace(path)
             except Exception as e:
-                raise ToolError(f"Failed to write file {path}: {str(e)}")
+                raise ToolError(f"Failed to write file {path}: {e!s}")
                 
         action = "Created" if not append or not path.exists() else "Updated"
         

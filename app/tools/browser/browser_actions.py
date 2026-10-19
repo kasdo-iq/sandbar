@@ -1,22 +1,14 @@
 import asyncio
 import os
 import time
-from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import Page, TimeoutError
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from app.helpers.tool_helpers import run_shell
+
+from browser_helpers import HelperJs
+from playwright.async_api import TimeoutError
+
 from app.logger import logger
 from app.tools.base import DEFAULT_WORKING_DIR
-from app.types.browser_types import (
-    BrowserClickAction, BrowserConsoleExecAction, BrowserConsoleViewAction, BrowserInputAction,
-    BrowserMoveMouseAction, BrowserNavigateAction, BrowserPressKeyAction, BrowserRestartAction,
-    BrowserScreenshotAction, BrowserScrollDownAction, BrowserScrollUpAction, BrowserSelectOptionAction,
-    BrowserViewAction
-)
 from browser_use import ActionResult
 from browser_use.browser.context import BrowserContext
-from browser_helpers import HelperJs
-from browser_manager import BrowserManager
 
 __all__ = [
     'register_browser_actions'
@@ -158,7 +150,7 @@ def register_browser_actions(manager):
             return await handle_navigation_timeout(page)
         except Exception as e:
             logger.error(f"Navigation error: {e}")
-            return ActionResult(error=f"Failed to navigate to {url}: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to navigate to {url}: {e!s}", include_in_memory=True)
     
     async def action_browser_click_impl(params, browser):
         """Handle click actions on browser elements."""
@@ -236,7 +228,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Click error: {e}")
-            return ActionResult(error=f"Failed to perform click action: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to perform click action: {e!s}", include_in_memory=True)
     
     async def action_browser_input_impl(params, browser):
         """Handle input operations in browser."""
@@ -343,7 +335,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Input error: {e}")
-            return ActionResult(error=f"Failed to perform input action: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to perform input action: {e!s}", include_in_memory=True)
     
     async def action_browser_view_impl(params, browser):
         """View page content action."""
@@ -374,7 +366,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"View error: {e}")
-            return ActionResult(error=f"Failed to view page content: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to view page content: {e!s}", include_in_memory=True)
     
     async def action_browser_screenshot_impl(params, browser):
         """Take a screenshot of the current page."""
@@ -413,7 +405,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Screenshot error: {e}")
-            return ActionResult(error=f"Failed to take screenshot: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to take screenshot: {e!s}", include_in_memory=True)
     
     async def action_browser_scroll_down_impl(params, browser):
         """Scroll the page down."""
@@ -461,7 +453,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Scroll down error: {e}")
-            return ActionResult(error=f"Failed to scroll down: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to scroll down: {e!s}", include_in_memory=True)
     
     async def action_browser_scroll_up_impl(params, browser):
         """Scroll the page up."""
@@ -508,7 +500,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Scroll up error: {e}")
-            return ActionResult(error=f"Failed to scroll up: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to scroll up: {e!s}", include_in_memory=True)
     
     async def action_browser_press_key_impl(params, browser):
         """Press a key in the browser."""
@@ -548,7 +540,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Key press error: {e}")
-            return ActionResult(error=f"Failed to press key '{params.key}': {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to press key '{params.key}': {e!s}", include_in_memory=True)
     
     async def action_browser_select_option_impl(params, browser):
         """Select an option from a dropdown menu."""
@@ -606,7 +598,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Select option error: {e}")
-            return ActionResult(error=f"Failed to select option: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to select option: {e!s}", include_in_memory=True)
     
     async def action_browser_console_exec_impl(params, browser):
         """Execute JavaScript code in the browser console."""
@@ -643,7 +635,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Console exec error: {e}")
-            return ActionResult(error=f"Failed to execute JavaScript: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to execute JavaScript: {e!s}", include_in_memory=True)
     
     async def action_browser_console_view_impl(params, browser):
         """View the console logs in the browser."""
@@ -673,7 +665,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Console view error: {e}")
-            return ActionResult(error=f"Failed to view console logs: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to view console logs: {e!s}", include_in_memory=True)
     
     async def action_browser_restart_impl(params, browser):
         """Restart the browser instance."""
@@ -712,7 +704,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Browser restart error: {e}")
-            return ActionResult(error=f"Failed to restart browser: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to restart browser: {e!s}", include_in_memory=True)
     
     async def action_browser_move_mouse_impl(params, browser):
         """Move the mouse to specified coordinates."""
@@ -745,7 +737,7 @@ def register_browser_actions(manager):
             )
         except Exception as e:
             logger.error(f"Mouse movement error: {e}")
-            return ActionResult(error=f"Failed to move mouse: {str(e)}", include_in_memory=True)
+            return ActionResult(error=f"Failed to move mouse: {e!s}", include_in_memory=True)
     
     # Assign the implementation functions to the lambda placeholders
     action_browser_navigate = action_browser_navigate_impl

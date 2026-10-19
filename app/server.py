@@ -7,25 +7,38 @@ import tempfile
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List
+
 import httpx
-from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket
+from fastapi import Body, FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
 from app import pathsafety
 from app.auth import AuthMiddleware, ensure_server_auth_config
-from app.helpers.utils import upload_to_presigned_url, upload_file_parts
-from app.logger import logger
+from app.helpers.utils import upload_file_parts, upload_to_presigned_url
 from app.llm.endpoints import llm_router
+from app.logger import logger
 from app.models import MultipartUploadRequest, MultipartUploadResponse
 from app.router import TimedRoute
 from app.terminal_socket_server import TerminalSocketServer
 from app.tools.base import DEFAULT_WORKING_DIR, ToolError
-from app.tools.browser.browser_manager import BrowserDeadError, BrowserManager, PageDeadError
+from app.tools.browser.browser_manager import (
+    BrowserDeadError,
+    BrowserManager,
+    PageDeadError,
+)
+from app.tools.registry import TOOL_REGISTRY
 from app.tools.terminal import terminal_manager
 from app.tools.text_editor import text_editor
-from app.types.messages import BrowserActionRequest, BrowserActionResponse, TerminalApiResponse, TerminalWriteApiRequest, TextEditorAction, TextEditorActionResult
+from app.types.messages import (
+    BrowserActionRequest,
+    BrowserActionResponse,
+    TerminalApiResponse,
+    TerminalWriteApiRequest,
+    TextEditorAction,
+    TextEditorActionResult,
+)
 
 app = FastAPI()
 app.router.route_class = TimedRoute
@@ -54,14 +67,17 @@ def _startup_auth_check() -> None:
     """Fail closed: refuse to serve without SANDBOX_API_TOKEN unless
     AUTH_DISABLED is explicitly true."""
     ensure_server_auth_config()
+
+from app.agent.endpoints import agent_router
+from app.tools.endpoints import tools_router
+
 app.include_router(llm_router)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.include_router(tools_router)
+app.include_router(agent_router)
+
+# Tool layer (Phase 4): builtin tools + custom_tools/*.py discovery
+TOOL_REGISTRY.register_builtins()
+TOOL_REGISTRY.discover_custom_tools()
 
 class FileUploadRequest(BaseModel):
     file_path: str
@@ -247,7 +263,7 @@ class DownloadItem(BaseModel):
     filename: str
 
 class DownloadRequest(BaseModel):
-    files: List[DownloadItem]
+    files: list[DownloadItem]
     folder: str | None = None
 
 class DownloadResult(BaseModel):
@@ -353,14 +369,14 @@ async def browser_action(cmd: BrowserActionRequest = Body()):
                 browser_manager.execute_action(cmd),
                 timeout=timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             error_msg = f"Browser action timed out after {timeout}s, new tab created and opened target:blank."
             logger.error(error_msg)
             await browser_manager.recreate_page()
             raise PageDeadError(error_msg)
     
     try:
-        logger.info(f"start handling browser action {repr(cmd)}")
+        logger.info(f"start handling browser action {cmd!r}")
         result = await execute_with_retry()
         
         logger.info("\n".join([
@@ -540,7 +556,7 @@ async def write_terminal_process(terminal_id: str, cmd: TerminalWriteApiRequest)
         raise HTTPException(status_code=500, detail=str(e))
 
 class InitSandboxRequest(BaseModel):
-    secrets: Dict[str, str]
+    secrets: dict[str, str]
 
 @app.post("/init-sandbox")
 async def init_sandbox(request: InitSandboxRequest):
@@ -601,7 +617,7 @@ async def init_sandbox(request: InitSandboxRequest):
                         })
                 except Exception as e:
                     logger.error(f"Error reading existing secret file {key}: {e}")
-                    raise HTTPException(status_code=500, detail=f"Failed to process existing secret file {key}: {str(e)}")
+                    raise HTTPException(status_code=500, detail=f"Failed to process existing secret file {key}: {e!s}")
             
             try:
                 with open(secret_file, 'w') as f:
@@ -615,7 +631,7 @@ async def init_sandbox(request: InitSandboxRequest):
                 })
             except Exception as e:
                 logger.error(f"Error writing secret file {key}: {e}")
-                raise HTTPException(status_code=500, detail=f"Failed to write secret file {key}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Failed to write secret file {key}: {e!s}")
         
         return {
             'status': 'ok',
@@ -624,7 +640,7 @@ async def init_sandbox(request: InitSandboxRequest):
         }
     except Exception as e:
         logger.error(f"Error processing secrets: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to process secrets: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process secrets: {e!s}")
 
 @app.get("/healthz")
 async def healthz():
@@ -769,7 +785,7 @@ async def zip_and_upload(request: ZipAndUploadRequest):
             message=f"Successfully processed {request.project_type} project and uploaded to S3"
         ).model_dump()
     except Exception as e:
-        logger.error(f"Error in zip-and-upload: {str(e)}")
+        logger.error(f"Error in zip-and-upload: {e!s}")
         
         # Clean up temp directory if it exists
         if request.project_type == ProjectType.FRONTEND:
@@ -839,4 +855,4 @@ def create_zip_archive(source_dir: str, output_zip: str) -> tuple[bool, str]:
         
         return (True, '')
     except Exception as e:
-        return (False, f"Failed to create zip archive: {str(e)}")
+        return (False, f"Failed to create zip archive: {e!s}")

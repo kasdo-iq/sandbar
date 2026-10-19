@@ -1,6 +1,6 @@
+import base64
 import os
 import pathlib
-import base64
 from dataclasses import dataclass
 
 from app.logger import logger
@@ -8,8 +8,8 @@ from browser_use import ActionResult
 
 __all__ = [
     'HelperJs',
-    'screenshot_to_data_url',
-    'check_file_path'
+    'check_file_path',
+    'screenshot_to_data_url'
 ]
 
 # Directory where JavaScript helper files are stored
@@ -270,4 +270,4 @@ def check_file_path(file_path):
         return None
     except Exception as e:
         logger.error(f"Error creating directory for file {file_path}: {e}")
-        return ActionResult(error=f'Failed to create directory for {file_path}: {str(e)}', include_in_memory=True)
+        return ActionResult(error=f'Failed to create directory for {file_path}: {e!s}', include_in_memory=True)

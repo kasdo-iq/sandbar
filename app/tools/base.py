@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass, fields, replace
-from typing import Any
 
 # Default working directory inside the container
 wd = '/home/ubuntu'
@@ -43,11 +42,9 @@ class ToolResult:
 
 class CLIResult(ToolResult):
     """A ToolResult that can be rendered as a CLI output."""
-    pass
 
 class ToolFailure(ToolResult):
     """A ToolResult that represents a failure."""
-    pass
 
 class ToolError(Exception):
     """Raised when a tool encounters an error."""

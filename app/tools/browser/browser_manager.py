@@ -1,12 +1,12 @@
 import asyncio
 import os
 import random
-import urllib
 import urllib.parse as urlparse
 from datetime import datetime
 from typing import Literal
 
 from playwright._impl._errors import TargetClosedError
+
 from app.helpers.tool_helpers import run_shell
 from app.helpers.utils import upload_to_presigned_url
 from app.logger import logger
@@ -14,13 +14,12 @@ from app.tools.base import DEFAULT_WORKING_DIR
 from app.types.browser_types import BrowserActionResult
 from app.types.messages import BrowserActionRequest
 from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig
-from browser_use.browser.context import BrowserContext, ScreenshotError, PageDeadError
+from browser_use.browser.context import BrowserContext, PageDeadError, ScreenshotError
 from browser_use.controller.service import Controller
 
 
 class BrowserDeadError(Exception):
     """Exception raised when the browser is not available or has crashed."""
-    pass
 
 
 class BrowserManager:
@@ -145,7 +144,7 @@ class BrowserManager:
         try:
             # Execute the action using the controller's act method
             result = await self.controller.act(action, self.browser_context)
-            logger.info(f"Action execution finish, result {repr(result)}")
+            logger.info(f"Action execution finish, result {result!r}")
 
             # Update state
             logger.info("Updating state...")
@@ -282,7 +281,7 @@ class BrowserManager:
                     "marked.webp"
                 )
                 logger.info(f"Screenshot uploaded successfully to {cmd.screenshot_presigned_url}")
-            except Exception as e:
+            except Exception:
                 logger.error("Failed to upload screenshot")
         else:
             logger.info("No presigned URL provided for screenshot, skipped uploading")
@@ -296,7 +295,7 @@ class BrowserManager:
                     "clean.webp"
                 )
                 logger.info(f"Clean screenshot uploaded successfully to {cmd.clean_screenshot_presigned_url}")
-            except Exception as e:
+            except Exception:
                 logger.error("Failed to upload clean screenshot")
         else:
             logger.info("No presigned clean URL provided for screenshot, skipped uploading")

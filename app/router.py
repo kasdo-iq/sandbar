@@ -1,8 +1,11 @@
 import time
-from typing import Callable
+from collections.abc import Callable
+
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
+
 from app.logger import logger
+
 
 class TimedRoute(APIRoute):
     """

@@ -198,12 +198,9 @@ class OpenAICompatibleProvider(LLMProvider):
             **opts,
             **kwargs,
         ):
-            if chunk.usage is not None:
-                # usage arrives on the final chunk
-                usage = chunk.usage.model_dump()
-            else:
-                usage = None
-            for delta in chunk.choices and chunk.choices[0].delta and [chunk.choices[0].delta] or []:
+            usage_data = chunk.usage.model_dump() if chunk.usage is not None else None
+
+            for delta in (chunk.choices and chunk.choices[0].delta and [chunk.choices[0].delta]) or []:
                 for idx, piece in enumerate(delta.tool_calls or []):
                     slot = pending_calls.setdefault(idx, {"id": "", "name": "", "args": ""})
                     if piece.id:
@@ -216,7 +213,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 if text:
                     yield StreamEvent(type="delta", content=text)
             finish = chunk.choices[0].finish_reason if chunk.choices else None
-            if usage or finish:
+            if usage_data or finish:
                 final = LLMResponse(
                     provider=self.name,
                     model=response_model,
@@ -225,7 +222,7 @@ class OpenAICompatibleProvider(LLMProvider):
                         ToolCall(id=s["id"], name=s["name"], arguments=parse_tool_json(s["args"] or "{}"))
                         for s in pending_calls.values()
                     ],
-                    usage=usage,
+                    usage=usage_data,
                     finish_reason=finish,
                 )
                 for tc in final.tool_calls:

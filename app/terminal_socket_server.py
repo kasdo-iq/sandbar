@@ -1,13 +1,16 @@
 import asyncio
-import json  # Not directly used but kept for bytecode consistency
-from typing import Any, Dict
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from app.logger import logger
 from app.tools.terminal import terminal_manager
-from app.types.messages import TerminalInputMessage, TerminalOutputMessage, TerminalStatus
+from app.types.messages import (
+    TerminalInputMessage,
+    TerminalOutputMessage,
+    TerminalStatus,
+)
+
 
 class TerminalSocketServer:
     """

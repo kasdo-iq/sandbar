@@ -1,6 +1,6 @@
 '''Utility to run shell commands asynchronously with a timeout.'''
 import asyncio
-from typing import Optional, Tuple
+
 from app.logger import logger
 
 TRUNCATED_MESSAGE: str = (
@@ -10,13 +10,13 @@ TRUNCATED_MESSAGE: str = (
 )
 MAX_RESPONSE_LEN: int = 16000
 
-def maybe_truncate(content: str, truncate_after: Optional[int]) -> str:
+def maybe_truncate(content: str, truncate_after: int | None) -> str:
     '''Truncate content and append a notice if content exceeds the specified length.'''
     if truncate_after is None or len(content) <= truncate_after:
         return content
     return content[:truncate_after] + TRUNCATED_MESSAGE
 
-async def run_shell(cmd: str, timeout: float = 30, truncate_after: Optional[int] = None, input: Optional[str] = None) -> Tuple[int, str, str]:
+async def run_shell(cmd: str, timeout: float = 30, truncate_after: int | None = None, input: str | None = None) -> tuple[int, str, str]:
     '''
     Run a shell command asynchronously with a timeout.
     
@@ -48,13 +48,13 @@ async def run_shell(cmd: str, timeout: float = 30, truncate_after: Optional[int]
                 process.communicate(input=input.encode() if input else None),
                 timeout=timeout
             )
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             logger.warning(f"Command timed out after {timeout} seconds: {cmd}")
             try:
                 process.kill()
             except Exception as kill_exc:
                 logger.error(f"Error killing process: {kill_exc}")
-            raise asyncio.TimeoutError(f"Command '{cmd}' timed out after {timeout} seconds") from e
+            raise TimeoutError(f"Command '{cmd}' timed out after {timeout} seconds") from e
         
         return_code = process.returncode or 0
         stdout = stdout_bytes.decode('utf-8', errors='replace')

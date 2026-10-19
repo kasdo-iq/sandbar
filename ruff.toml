@@ -1,0 +1,21 @@
+# Ruff config: strict for files written in this modernization effort,
+# relaxed for the original reverse-engineered sources.
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = ["E4", "E7", "E9", "F", "B", "BLE", "C4", "RUF", "SIM", "S", "W"]
+ignore = ["G004", "TRY003"]
+
+[lint.per-file-ignores]
+# Original (pre-modernization) code: readability kept as-is.
+"browser_use/**" = ["B", "BLE", "C4", "RUF", "SIM", "S", "E4", "E7", "E9", "F", "W"]
+"app/tools/browser/**" = ["B", "BLE", "C4", "RUF", "SIM", "S", "E4", "E7", "E9", "F", "W"]
+"app/terminal_socket_server.py" = ["B", "BLE", "S", "F"]
+"app/helpers/**" = ["B", "BLE", "S"]
+"app/router.py" = ["B", "BLE", "S"]
+"app/logger.py" = ["S"]
+"app/auth.py" = ["S"]
+"data_api.py" = ["S"]
+# tests: plain asserts everywhere
+"tests/**" = ["S101", "S105", "S106"]
