@@ -62,10 +62,7 @@ def public_ip_allowed(ip: str) -> bool:
         return False
     if addr.is_multicast or addr.is_reserved:
         return False
-    for net in BLOCKED_NETWORKS:
-        if addr in net:
-            return False
-    return True
+    return all(addr not in net for net in BLOCKED_NETWORKS)
 
 
 def validate_url(url: str) -> urlsplit.SplitResult:

@@ -14,17 +14,17 @@ class MyExpecter(Expecter):
     """
 
     async def my_expect_loop(
-        self, 
-        PS1_REG, 
+        self,
+        PS1_REG,
         get_user_input: Callable[[], Awaitable[bytes]]
     ) -> AsyncGenerator[tuple[bool, bytes], None]:
         """
         Asynchronous expect loop that handles terminal interactions.
-        
+
         Args:
             PS1_REG: Regular expression pattern for the prompt.
             get_user_input: Coroutine function to get user input.
-        
+
         Returns:
             An async generator yielding tuples of (bool, bytes) representing
             the state of the terminal output.

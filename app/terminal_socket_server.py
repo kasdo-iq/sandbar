@@ -17,40 +17,40 @@ class TerminalSocketServer:
     WebSocket server for handling terminal connections.
     This class manages bidirectional communication with terminals through WebSockets.
     """
-    
+
     async def handle_connection(self, ws: WebSocket):
         """
         Handle a new WebSocket connection for terminal interaction.
-        
+
         Args:
             ws: The WebSocket connection
         """
         await ws.accept()
         logger.info("New terminal WebSocket connection established")
-        
+
         # Dictionary to track running tasks by action_id
         tasks = {}
-        
+
         # Helper function to cleanup tasks when connection closes
         def stop_all_tasks():
             for task in tasks.values():
                 task.cancel()
-        
+
         # Helper function to receive and process messages
         async def get_socket_message():
             try:
                 # Get JSON message directly
                 msg_data = await ws.receive_json()
-                
+
                 try:
                     # Validate message using model_validate
                     msg = TerminalInputMessage.model_validate(msg_data)
                     logger.info(f"Got message: {msg_data}")
-                    
+
                     # Create task to handle the message
                     task = asyncio.create_task(self.handle_msg(msg, ws))
                     tasks[msg.action_id] = task
-                    
+
                     # Add callback to remove task when done
                     task.add_done_callback(lambda task: tasks.pop(msg.action_id))
                 except ValidationError as e:
@@ -65,7 +65,7 @@ class TerminalSocketServer:
                     ))
             except Exception as e:
                 logger.error(f"Error handling message: {e}")
-        
+
         try:
             # Process messages continuously
             while True:
@@ -77,14 +77,14 @@ class TerminalSocketServer:
             logger.error(f"Error: {e}")
             logger.info("Closing websocket")
             await ws.close()
-            
+
         # Clean up any remaining tasks
         stop_all_tasks()
-    
+
     async def send_resp(self, ws: WebSocket, resp: TerminalOutputMessage):
         """
         Send a response to the client over the WebSocket connection.
-        
+
         Args:
             ws: The WebSocket connection
             resp: The response data to send
@@ -95,36 +95,36 @@ class TerminalSocketServer:
             await ws.send_json(resp.model_dump())
         except RuntimeError as e:
             logger.error(f"Error sending resp: {e}")
-    
+
     async def handle_msg(self, msg: TerminalInputMessage, ws: WebSocket):
         """
         Handle an incoming message from the client.
-        
+
         Args:
             msg: The validated terminal input message
             ws: The WebSocket connection
         """
         logger.info(f"Handle terminal socket msg#{msg.action_id} {msg}")
-        
+
         # Direct call to _do_handle_msg without additional validation
         await self._do_handle_msg(msg, ws)
-        
+
         logger.info(f"Finished handling msg#{msg.action_id}")
-    
+
     async def _do_handle_msg(self, msg: TerminalInputMessage, ws: WebSocket):
         """
         Process a validated terminal input message.
-        
+
         Args:
             msg: The validated terminal input message
             ws: The WebSocket connection
         """
         terminal_id = msg.terminal
         action_id = msg.action_id
-        
+
         # Get or create terminal instance
         terminal = await terminal_manager.create_or_get_terminal(terminal_id)
-        
+
         # Handle different message types
         if msg.type == "reset":
             # Reset the terminal
@@ -136,12 +136,12 @@ class TerminalSocketServer:
                 terminal_status="idle"
             )
             await self.send_resp(ws, response)
-            
+
         elif msg.type == "reset_all":
             # Reset all terminals
             for term in terminal_manager.terminals.values():
                 await term.reset()
-            
+
             response = msg.create_response(
                 type="action_finish",
                 result="all terminals reset success",
@@ -149,13 +149,13 @@ class TerminalSocketServer:
                 terminal_status="idle"
             )
             await self.send_resp(ws, response)
-            
+
         elif msg.type == "view":
             # View full terminal history
             terminal_status: TerminalStatus = "running" if terminal.is_running else "idle"
-            
+
             logger.info(f"Sending history: {terminal.get_history(True, True)}")
-            
+
             response = msg.create_response(
                 type="history",
                 result=None,
@@ -163,13 +163,13 @@ class TerminalSocketServer:
                 terminal_status=terminal_status
             )
             await self.send_resp(ws, response)
-            
+
         elif msg.type == "view_last":
             # View only the most recent terminal output
             terminal_status: TerminalStatus = "running" if terminal.is_running else "idle"
-            
+
             logger.info(f"Sending last history: {terminal.get_history(True, False)}")
-            
+
             response = msg.create_response(
                 type="history",
                 result=None,
@@ -177,11 +177,11 @@ class TerminalSocketServer:
                 terminal_status=terminal_status
             )
             await self.send_resp(ws, response)
-            
+
         elif msg.type == "kill_process":
             # Kill the current process in the terminal
             await terminal.kill_process()
-            
+
             response = msg.create_response(
                 type="action_finish",
                 result="process killed",
@@ -189,7 +189,7 @@ class TerminalSocketServer:
                 terminal_status="idle"
             )
             await self.send_resp(ws, response)
-            
+
         elif msg.type == "command":
             # Execute a command in the terminal
             if not msg.command:
@@ -201,7 +201,7 @@ class TerminalSocketServer:
                 )
                 await self.send_resp(ws, response)
                 return
-            
+
             # Set working directory if provided
             if msg.exec_dir:
                 if not await terminal.set_working_directory(msg.exec_dir):
@@ -213,11 +213,11 @@ class TerminalSocketServer:
                     )
                     await self.send_resp(ws, response)
                     return
-            
+
             # Default to "run" mode if not specified
             if not msg.mode:
                 msg.mode = "run"
-                
+
             # Handle different command modes
             if msg.mode == "send_key":
                 await terminal.send_key(msg)
@@ -229,7 +229,7 @@ class TerminalSocketServer:
                     terminal_status=terminal_status
                 )
                 await self.send_resp(ws, response)
-                
+
             elif msg.mode == "send_line":
                 await terminal.send_line(msg)
                 terminal_status: TerminalStatus = "idle" if not terminal.is_running else "running"
@@ -240,7 +240,7 @@ class TerminalSocketServer:
                     terminal_status=terminal_status
                 )
                 await self.send_resp(ws, response)
-                
+
             elif msg.mode == "send_control":
                 await terminal.send_control(msg)
                 terminal_status: TerminalStatus = "idle" if not terminal.is_running else "running"
@@ -251,7 +251,7 @@ class TerminalSocketServer:
                     terminal_status=terminal_status
                 )
                 await self.send_resp(ws, response)
-                
+
             elif msg.mode == "run":
                 # Execute the command and yield responses
                 async for result in terminal.execute_command(msg):

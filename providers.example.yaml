@@ -10,7 +10,6 @@
 
 default_provider: groq           # used unless a request names `provider`
 fallback: [gemini, openrouter]   # tried in order on rate-limit / errors
-
 retries_per_provider: 1          # extra attempts per provider before fallback
 backoff_seconds: 1.0             # exponential: 1s, 2s, 4s...
 
@@ -19,7 +18,9 @@ providers:
     api_family: openai-compatible     # groq speaks the OpenAI protocol
     enabled: true
     api_key_env: GROQ_API_KEY
-    model: llama-3.3-70b-versatile
+    # verified working 2026-10; check https://api.groq.com/openai/v1/models
+    # (or LLM_GROQ_MODEL=... env) if this id stops existing
+    model: qwen/qwen3.8-27b
     # base_url override (defaults shown for the built-in providers):
     base_url: https://api.groq.com/openai/v1
     temperature: 0.7
@@ -32,7 +33,7 @@ providers:
     api_family: gemini                # google-genai SDK
     enabled: true
     api_key_env: GEMINI_API_KEY
-    model: gemini-2.0-flash
+    model: gemini-2.5-flash           # verify against the models.list API
     temperature: 0.7
     max_tokens: 8192
     timeout: 60
@@ -42,7 +43,7 @@ providers:
     api_family: openai-compatible
     enabled: false
     api_key_env: OPENROUTER_API_KEY
-    model: anthropic/claude-3.7-sonnet
+    model: anthropic/claude-sonnet-5.5    # verified in /api/v1/models 2026-10
     base_url: https://openrouter.ai/api/v1
     temperature: 0.7
     max_tokens: 4096
@@ -55,7 +56,7 @@ providers:
     api_family: anthropic
     enabled: true
     api_key_env: ANTHROPIC_API_KEY
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-20250514   # override via LLM_CLAUDE_MODEL if needed
     temperature: 0.7
     max_tokens: 4096
     timeout: 60

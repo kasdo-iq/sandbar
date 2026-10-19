@@ -29,13 +29,13 @@ def ensure_dir_exists(dir_path):
 async def upload_to_presigned_url(data, presigned_url, content_type, filename):
     '''
     Upload data to a presigned URL using aiohttp.
-    
+
     Args:
         data: The data to upload (bytes or file-like object)
         presigned_url: The presigned URL to upload to
         content_type: The content type of the data
         filename: The name of the file being uploaded
-    
+
     Returns:
         dict: Response data from the upload
     '''
@@ -43,7 +43,7 @@ async def upload_to_presigned_url(data, presigned_url, content_type, filename):
         'Content-Type': content_type,
         'Content-Disposition': f"attachment; filename*=UTF-8''{quote(filename)}"
     }
-    
+
     async with aiohttp.ClientSession() as session:
         try:
             async with session.put(presigned_url, data=data, headers=headers) as response:
@@ -61,13 +61,13 @@ async def upload_to_presigned_url(data, presigned_url, content_type, filename):
 async def upload_part(session, url, data, part_number):
     '''
     Upload a single part to S3 using presigned URL
-    
+
     Args:
         session: aiohttp ClientSession
         url: Presigned URL for this part
         data: Binary data to upload
         part_number: The part number
-    
+
     Returns:
         PartUploadResult: Result of the upload operation
     '''
@@ -104,15 +104,15 @@ class FilePartReader:
         self.file_path = file_path
         self.part_size = part_size
         self._file = None
-    
+
     async def __aenter__(self):
         self._file = open(self.file_path, 'rb')
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._file:
             self._file.close()
-    
+
     def read_part(self, part_number):
         '''读取指定分片的数据 (Read the data of the specified part)'''
         offset = (part_number - 1) * self.part_size
@@ -122,25 +122,25 @@ class FilePartReader:
 async def upload_file_parts(file_path, presigned_urls: list[PresignedUrlPart], part_size, max_concurrent: int = 5) -> list[PartUploadResult]:
     '''
     并发上传文件分片 (Concurrently upload file parts)
-    
+
     Args:
         file_path: 文件路径 (File path)
         presigned_urls: 预签名URL列表 (List of presigned URLs)
         part_size: 分片大小（字节） (Part size in bytes)
         max_concurrent: 最大并发数 (Maximum concurrency, default 5)
-    
+
     Returns:
         List[PartUploadResult]: Results of all part uploads
     '''
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
-    
+
     if not presigned_urls:
         raise ValueError("No presigned URLs provided")
-    
+
     sorted_urls = sorted(presigned_urls, key=lambda x: x.part_number)
     semaphore = asyncio.Semaphore(max_concurrent)
-    
+
     async def upload_part_with_semaphore(session, url_obj: PresignedUrlPart):
         async with semaphore:
             try:
@@ -157,7 +157,7 @@ async def upload_file_parts(file_path, presigned_urls: list[PresignedUrlPart], p
                     success=False,
                     error=str(e)
                 )
-    
+
     async with aiohttp.ClientSession() as session:
         tasks = [upload_part_with_semaphore(session, url_obj) for url_obj in sorted_urls]
         results = await asyncio.gather(*tasks)

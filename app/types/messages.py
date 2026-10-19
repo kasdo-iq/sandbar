@@ -81,7 +81,7 @@ class TerminalOutputMessage(BaseModel):
     type: TerminalOutputMessageType
     terminal: str
     action_id: str
-    sub_command_index: int = 0 
+    sub_command_index: int = 0
     result: str | None = None
     output: list[str]
     terminal_status: Literal['idle', 'running', 'unknown']

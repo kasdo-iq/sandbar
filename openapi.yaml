@@ -263,11 +263,145 @@ paths:
       description: >
         Establish a WebSocket connection for real-time terminal interactions. 
         **Note:** This is a WebSocket endpoint and not accessible via standard HTTP requests.
+        Auth (Phase 3): the connection must present `x-sandbox-token` / `Authorization: Bearer`
+        header (or `?token=` query fallback) **before** the handshake is accepted;
+        otherwise the socket is closed with code 1008.
       responses:
         '101':
           description: Switching Protocols (WebSocket handshake successful).
+        '403':
+          description: Handshake rejected (missing/invalid token).
+  /llm/providers:
+    get:
+      summary: List LLM Providers
+      description: >
+        Providers configured via providers.yaml (+ LLM_* env overrides).
+        `api_key_env` is the NAME of the env var holding the key; no keys are ever returned.
+      security:
+        - SandboxToken: []
+      responses:
+        '200':
+          description: Provider listing.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LlmProviderInfo'
+  /llm/chat:
+    post:
+      summary: Chat via configured provider chain
+      description: >
+        One-shot (stream=false, JSON body) or SSE-streaming chat (stream=true,
+        text/event-stream with delta/tool_call/final/error events, terminated by `data: [DONE]`).
+        Per-request `provider`/`model` override the default chain; configured
+        fallback providers are tried in order (retry + exponential backoff) on
+        rate limits/transient errors.
+      security:
+        - SandboxToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LlmChatRequest'
+      responses:
+        '200':
+          description: Non-streaming chat result (stream=false).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LlmResponse'
+        '200+text/event-stream':
+          description: SSE stream (stream=true).
+        '401':
+          description: Missing/invalid token.
+        '429':
+          description: Too many failed auth attempts.
+        '502':
+          description: All providers failed.
+  /tools:
+    get:
+      summary: List Registered Tools
+      description: >-
+        All sandbox tools (builtin + custom_tools/*.py) with their JSON Schemas.
+      security:
+        - SandboxToken: []
+      responses:
+        '200':
+          description: Tool listing.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ToolInfo'
+  /tools/{name}/run:
+    post:
+      summary: Run a Tool
+      description: >
+        Execute one registered tool. Body is the arguments object itself
+        (or {"arguments": {...}}). Response mirrors the tool result dict
+        (status/output/...).
+      security:
+        - SandboxToken: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Tool name (see GET /tools).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Tool result dict.
+        '401':
+          description: Missing/invalid token.
+        '404':
+          description: Unknown tool.
+        '500':
+          description: Tool raised an error.
+        '504':
+          description: Tool timed out (180s cap).
+  /agent/run:
+    post:
+      summary: Run the Agent Loop (SSE)
+      description: >
+        LLM tool-calling loop: goal -> provider chain w/ tool schemas -> execute
+        tool calls -> feed results back, until a final answer or max_steps.
+        Streams steps as SSE events (step_start, assistant_text, tool_call,
+        tool_result, final_answer, error), terminated by `data: [DONE]`.
+        Hard limits: max_steps, total_timeout_seconds, output truncation.
+      security:
+        - SandboxToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRunRequest'
+      responses:
+        '200':
+          description: SSE event stream.
+        '401':
+          description: Missing/invalid token.
 
 components:
+  securitySchemes:
+    SandboxToken:
+      type: apiKey
+      in: header
+      name: x-sandbox-token
+      description: >
+        Sandbox token from env SANDBOX_API_TOKEN. Alternatively send
+        `Authorization: Bearer <token>`. Applied to every endpoint except
+        GET /healthz (and WebSocket /terminal pre-accept, closing 1008).
   schemas:
     MultipartUploadRequest:
       type: object
@@ -361,3 +495,151 @@ components:
         - directory
         - upload_url
         - project_type
+    LlmProviderInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        api_family:
+          type: string
+          enum: [openai-compatible, anthropic, gemini]
+        enabled:
+          type: boolean
+        configured:
+          type: boolean
+          description: Whether the api_key_env variable is present in the environment.
+        api_key_env:
+          type: string
+          description: NAME of the env var holding the key (never the key itself).
+        model:
+          type: string
+        base_url:
+          type: string
+          nullable: true
+        default:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+          description: Construction error (e.g. key missing) if the provider is unavailable.
+    LlmChatRequest:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/LlmMessage'
+        provider:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        tools:
+          type: array
+          nullable: true
+          description: 'OpenAI function format: [{type: function, function: {name, description, parameters}}].'
+        temperature:
+          type: number
+          nullable: true
+        max_tokens:
+          type: integer
+          nullable: true
+        stream:
+          type: boolean
+          default: false
+      required:
+        - messages
+    LlmMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          type: string
+        name:
+          type: string
+          nullable: true
+          description: Tool name for role=tool (needed by Gemini function responses).
+        tool_call_id:
+          type: string
+          nullable: true
+        tool_calls:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/LlmToolCall'
+      required:
+        - role
+        - content
+    LlmToolCall:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        arguments:
+          type: object
+      required:
+        - name
+    LlmResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+        content:
+          type: string
+        tool_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/LlmToolCall'
+        usage:
+          type: object
+          nullable: true
+        finish_reason:
+          type: string
+          nullable: true
+    ToolInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+          description: JSON Schema for the POST /tools/{name}/run body.
+    AgentRunRequest:
+      type: object
+      properties:
+        goal:
+          type: string
+        provider:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        tools:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Subset of tool names (default all).
+        max_steps:
+          type: integer
+          nullable: true
+          description: Hard step cap (default env AGENT_MAX_STEPS, 15).
+        system_prompt:
+          type: string
+          nullable: true
+        total_timeout_seconds:
+          type: number
+          nullable: true
+          description: Whole-loop timeout (default env AGENT_TOTAL_TIMEOUT, 300).
+      required:
+        - goal

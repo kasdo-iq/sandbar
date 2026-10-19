@@ -15,6 +15,7 @@ from app.llm.base import (
     StreamEvent,
     ToolCall,
 )
+from app.logger import logger
 
 
 class GeminiProvider(LLMProvider):
@@ -43,14 +44,13 @@ class GeminiProvider(LLMProvider):
         self._system_prompt = system_prompt
         kwargs: dict[str, Any] = {"api_key": api_key}
         if timeout:
-            kwargs["http_options"] = gtypes.HttpOptions(timeout=f"{int(timeout * 1000)}ms")
-        if extra_headers:
-            # google-genai client does not take arbitrary headers per call;
-            # documented limitation (kept in config for compat with others).
-            kwargs["http_options"] = kwargs.get("http_options", gtypes.HttpOptions())
+            # google-genai HttpOptions.timeout is int milliseconds
+            kwargs["http_options"] = gtypes.HttpOptions(timeout=int(timeout * 1000))
         self._client = genai.Client(**kwargs)
-        if extra_headers:  # pragma: no cover - best effort
-            pass
+        # best-effort hook for custom headers (google-genai does not accept
+        # arbitrary per-call headers; documented limitation)
+        if extra_headers:  # pragma: no cover
+            logger.debug(f"[gemini] extra_headers accepted but not forwarded: {list(extra_headers)}")
 
     @property
     def default_model(self) -> str:

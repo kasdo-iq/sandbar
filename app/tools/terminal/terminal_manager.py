@@ -79,13 +79,13 @@ class Terminal:
         self.history = []
         self.is_running = False
         self.user_input_buffer = ''
-        
+
         command = f'sudo su {DEFAULT_USER}'
         if not IS_INSIDE_CONTAINER:
             command = '/bin/bash --norc --noprofile'
-            
+
         logger.info(f'Initializing terminal {self.name} with command: {command}')
-        
+
         self.shell = pexpect.spawn(
             command,
             encoding='utf-8',
@@ -95,21 +95,21 @@ class Terminal:
             dimensions=(24, COLUMNS),
             maxread=4096
         )
-        
+
         if IS_INSIDE_CONTAINER:
             await self.shell.expect(['\\$|\\#'], async_=True)
         else:
             await self.shell.expect(['.*'], async_=True)
-            
+
         setup_commands = [
             f'export PS1="{PS1}"; export PS2=""',
             'export TERM=xterm-256color'
         ]
-        
+
         for cmd in setup_commands:
             self.shell.sendline(cmd)
             await self.shell.expect(PS1_REG, async_=True)
-            
+
         logger.info(f'Terminal {self.name} initialized')
         return self
 
@@ -117,77 +117,77 @@ class Terminal:
         if self.shell and not self.shell.terminated:
             self.shell.sendcontrol('c')
             self.shell.terminate()
-            
+
         await asyncio.sleep(0.1)
         await self.init()
 
     def get_history(self, append_prompt_line: bool, full_history: bool) -> list[str]:
         max_text_length = 5000
         max_total_length = 10000
-        
+
         if not self.history:
             if full_history:
                 return [self.get_prompt_string()]
             else:
                 return []
-                
+
         if not full_history:
             last_item = self.history[-1]
             truncated_text = truncate_text_from_back(last_item.text, max_text_length)
             result = f"{last_item.pre_prompt} {last_item.command}\n{truncated_text}"
-            
+
             if last_item.finished and append_prompt_line:
                 result += f"\n{last_item.after_prompt}"
-                
+
             return [result]
-            
+
         result = []
         total_length = 0
-        
+
         for i, item in enumerate(self.history):
             cmd_str = f"{item.pre_prompt} {item.command}"
             truncated_text = truncate_text_from_back(item.text, max_text_length)
             line = f"{cmd_str}\n{truncated_text}"
-            
+
             if i == len(self.history) - 1 and item.finished and append_prompt_line:
                 line += f"\n{item.after_prompt}"
-                
+
             if total_length + len(line) > max_total_length:
                 break
-                
+
             result.append(line)
             total_length += len(line)
-            
+
         return result
 
     async def execute_command(self, cmd_msg: TerminalInputMessage) -> AsyncGenerator[TerminalOutputMessage, None]:
         """Execute a command in the terminal"""
         if cmd_msg.mode != "run":
             raise AssertionError("mode mismatch")
-            
+
         if self.is_running:
             yield cmd_msg.create_response(
-                "error", 
+                "error",
                 "Previous command not finished in this terminal, abort the previous one use another terminal.",
                 [],
                 "idle"
             )
             return
-            
+
         self.is_running = True
         cmd = cmd_msg.command
-        
+
         if not cmd:
             raise AssertionError("command must be defined")
-            
+
         if cmd_msg.exec_dir:
             cmd = f'cd {cmd_msg.exec_dir} && {cmd}'
-            
+
         logger.info(f'Executing command in terminal {self.name}: {cmd}')
-        
+
         commands = split_bash_commands(cmd)
         output = ""
-        
+
         history_item = TerminalHistoryItem(
             pre_prompt=self.get_prompt_string(),
             after_prompt="",
@@ -196,43 +196,43 @@ class Terminal:
             finished=False,
             text=""
         )
-        
+
         self.add_history(history_item)
-        
+
         for i, command in enumerate(commands):
             results = []
             last_output = ""
-            
+
             async for is_done, cmd_output in self._do_execute_command(command):
                 if history_item not in self.history:
                     return
-                    
+
                 logger.info(f"Command is_done: {is_done}, output: {cmd_output}")
                 results.append(cmd_output)
                 processed_output = process_terminal_output("".join(results))
-                
+
                 if not is_done and processed_output == last_output:
                     continue
-                    
+
                 last_output = processed_output
                 processed_output = output + processed_output
                 update_type = "update"
-                
+
                 if is_done:
                     is_last = i == len(commands) - 1
                     update_type = "finish" if is_last else "partial_finish"
-                    
+
                 status = "idle" if update_type == "finish" else "running"
-                
+
                 history_item.text = processed_output
-                
+
                 if update_type == "finish":
                     self.update_prompt_str()
                     history_item.finished = True
                     history_item.after_prompt = self.get_prompt_string()
-                    
+
                 history_lines = self.get_history(True, False)
-                
+
                 yield cmd_msg.create_response(
                     update_type,
                     None,
@@ -240,11 +240,11 @@ class Terminal:
                     status,
                     i
                 )
-                
+
                 if is_done:
                     output = processed_output
                     results = []
-        
+
         self.is_running = False
         self.shell.sendline()
         await self.shell.expect(PS1_REG, async_=True)
@@ -252,21 +252,21 @@ class Terminal:
 
     async def kill_process(self):
         _wd = self._wd
-        
+
         self.shell.kill(SIGTERM)
         await asyncio.sleep(0.1)
-        
+
         saved_history = self.history
         await self.init(_wd)
         self.history = saved_history
-        
+
         for item in self.history:
             item.finished = True
 
     async def send_control(self, cmd_msg: TerminalInputMessage):
         if cmd_msg.mode != "send_control":
             raise AssertionError("mode mismatch")
-            
+
         if not self.is_running:
             return cmd_msg.create_response(
                 "error",
@@ -274,11 +274,11 @@ class Terminal:
                 [],
                 "idle"
             )
-            
+
         cmd = cmd_msg.command
         if not cmd:
             raise AssertionError("command must be defined")
-            
+
         if len(cmd) != 1:
             return cmd_msg.create_response(
                 "error",
@@ -286,10 +286,10 @@ class Terminal:
                 [],
                 "running"
             )
-            
+
         self.user_input_buffer = f"^{cmd.upper()}"
         self.shell.sendcontrol(cmd)
-        
+
         return cmd_msg.create_response(
             "action_finish",
             f"control '{cmd}' sent to the terminal",
@@ -308,7 +308,7 @@ class Terminal:
     async def send_key(self, cmd_msg: TerminalInputMessage):
         if cmd_msg.mode != "send_key":
             raise AssertionError("mode mismatch")
-            
+
         if not self.is_running:
             return cmd_msg.create_response(
                 "error",
@@ -316,14 +316,14 @@ class Terminal:
                 [],
                 "idle"
             )
-            
+
         key = cmd_msg.command
         if not key:
             raise AssertionError("command must be defined")
-            
+
         self.user_input_buffer = key
         self.shell.send(key)
-        
+
         return cmd_msg.create_response(
             "action_finish",
             f"key '{key}' sent to the terminal",
@@ -334,7 +334,7 @@ class Terminal:
     async def send_line(self, cmd_msg: TerminalInputMessage):
         if cmd_msg.mode != "send_line":
             raise AssertionError("mode mismatch")
-            
+
         if not self.is_running:
             return cmd_msg.create_response(
                 "error",
@@ -342,14 +342,14 @@ class Terminal:
                 [],
                 "idle"
             )
-            
+
         line = cmd_msg.command
         if not line:
             raise AssertionError("command must be defined")
-            
+
         self.user_input_buffer = line + "\n"
         self.shell.sendline(line)
-        
+
         return cmd_msg.create_response(
             "action_finish",
             f"string '{line}\\n' sent to the terminal",
@@ -377,86 +377,86 @@ class Terminal:
         类似: ubuntu@host:/home $
         """
         after = cast(str, self.shell.after)
-        
+
         if not after:
             logger.warning("Failed to get ps1, using default. this should not happen")
             return f"{GREEN}${RESET}"
-            
+
         match = re.match(PS1_REG, after)
         if not match:
             raise AssertionError(f"Failed to parse bash prompt: {after}. This should not happen.")
-            
+
         status, username, hostname, path = match.groups()
         path = path.rstrip()
         self._wd = os.path.expanduser(path)
-        
+
         prompt = f"{status}{username}@sandbox:{path} "
         if username == "root":
             prompt += "#"
         else:
             prompt += "$"
-            
+
         return f"{GREEN}{prompt}{RESET}"
 
     async def _do_execute_command(self, command: str) -> AsyncGenerator[tuple[bool, str], None]:
         shell = self.shell
         shell.sendline(command)
-        
+
         expecter = MyExpecter(shell, searcher_re(shell.compile_pattern_list(PS1_REG)))
-        
+
         def get_user_input():
             buffer = self.user_input_buffer
             self.user_input_buffer = ""
             return buffer
-            
+
         async for is_done, output in expecter.my_expect_loop(PS1_REG, get_user_input):
             logger.debug("\n".join([
                 f"[Terminal Updated - {self.name}]",
                 f"Finished: {is_done}",
                 f"Data:{json.dumps(output)}"
             ]))
-            
+
             yield is_done, output
-            
+
             if is_done:
                 break
 
     async def _do_execute_command_old(self, command: str) -> AsyncGenerator[tuple[bool, str], None]:
         """@deprecated"""
         self.shell.sendline(command)
-        
+
         while True:
             if self.user_input_buffer:
                 logger.info(f"[user_input_buffer]\n{json.dumps(self.user_input_buffer)}")
                 yield False, self.user_input_buffer
                 self.user_input_buffer = ""
-                
+
             try:
                 res = self.shell.read_nonblocking(size=4096, timeout=0.01)
-                
+
                 if res:
                     match = re.search(PS1_REG, res)
-                    
+
                     if self.user_input_buffer:
                         res = self.user_input_buffer + res
                         self.user_input_buffer = ""
-                        
+
                     logger.info(f"[res]\n{json.dumps(res)}")
-                    
+
                     if match:
                         if res[match.end():]:
                             raise AssertionError(f"content after ps1 mark, this should not happen, res:{json.dumps(res)}")
-                            
+
                         yield True, res[:match.start()]
                         return
-                        
+
                     yield False, res
             except pexpect.TIMEOUT:
                 pass
             except pexpect.EOF:
                 yield (True, "")
                 return
-                
+
             await asyncio.sleep(0.2)
 
     def is_alive(self) -> bool:
