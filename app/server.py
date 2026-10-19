@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from app.helpers.utils import upload_to_presigned_url, upload_file_parts
 from app.logger import logger
+from app.llm.endpoints import llm_router
 from app.models import MultipartUploadRequest, MultipartUploadResponse
 from app.router import TimedRoute
 from app.terminal_socket_server import TerminalSocketServer
@@ -26,6 +27,7 @@ from app.types.messages import BrowserActionRequest, BrowserActionResponse, Term
 
 app = FastAPI()
 app.router.route_class = TimedRoute
+app.include_router(llm_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

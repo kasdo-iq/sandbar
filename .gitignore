@@ -159,3 +159,7 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .aider*
+
+# Local, secret-filled config copies (examples are committed; these are not)
+providers.yaml
+.env

@@ -6,6 +6,8 @@ __pycache__
 *.pyd
 .DS_Store
 .env
+providers.yaml
+.venv
 venv
 test
 docs

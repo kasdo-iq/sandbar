@@ -5,21 +5,46 @@ from pathlib import Path
 import requests
 
 
+def manus_compatibility_enabled() -> bool:
+    """Manus compat guard (MANUS_COMPAT env, default true)."""
+    return os.getenv('MANUS_COMPAT', 'true').lower() != 'false'
+
+
 class ApiClient:
     """
     A client class for making requests to an internal API aggregation platform.
 
     This class provides a simple interface to call APIs through an internal proxy service
     that aggregates multiple external APIs.
+
+    Env:
+        MANUS_COMPAT=true|false   set false to disable entirely (server never
+                                  crashes on missing Manus host/token file).
     """
 
     def __init__(self):
         """
         Initialize the API client with the base host URL for the proxy service.
+
+        Raises:
+            RuntimeError: when MANUS_COMPAT=false, or when the sandbox API
+                token file is missing (with recovery instructions).
         """
+        if not manus_compatibility_enabled():
+            raise RuntimeError(
+                "ApiClient is disabled: MANUS_COMPAT=false. "
+                "Set MANUS_COMPAT=true to use the Manus proxy client."
+            )
         host = os.getenv('RUNTIME_API_HOST', 'https://api.manus.im')
         self.host = f'{host}/apiproxy.v1.ApiProxyService/CallApi'
-        with Path().home().joinpath('.secrets/sandbox_api_token').open('r') as f:
+        token_path = Path().home().joinpath('.secrets/sandbox_api_token')
+        if not token_path.is_file():
+            raise RuntimeError(
+                f"Missing sandbox API token file: {token_path}. "
+                "Create it (POST /init-sandbox with secrets "
+                "{'sandbox_api_token': '<value>'}) or docker cp one in."
+            )
+        with token_path.open('r') as f:
             self.token = f.read().strip()
 
     def _convert_bool_to_str(self, data: dict | None) -> dict | None:

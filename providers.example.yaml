@@ -1,0 +1,70 @@
+# Copy to `providers.yaml` (or point PROVIDERS_CONFIG at it) and edit.
+# NEVER put real API keys in here — only the NAME of the env var via
+# api_key_env. Actual keys go in .env / your environment.
+#
+# Environment overrides (highest priority):
+#   LLM_DEFAULT_PROVIDER=<name>
+#   LLM_FALLBACK=<name1>,<name2>
+#   LLM_<PROVIDER>_MODEL / _BASE_URL / _ENABLED / _API_KEY /
+#                          _TEMPERATURE / _MAX_TOKENS / _SYSTEM_PROMPT
+
+default_provider: groq           # used unless a request names `provider`
+fallback: [gemini, openrouter]   # tried in order on rate-limit / errors
+
+retries_per_provider: 1          # extra attempts per provider before fallback
+backoff_seconds: 1.0             # exponential: 1s, 2s, 4s...
+
+providers:
+  groq:
+    api_family: openai-compatible     # groq speaks the OpenAI protocol
+    enabled: true
+    api_key_env: GROQ_API_KEY
+    model: llama-3.3-70b-versatile
+    # base_url override (defaults shown for the built-in providers):
+    base_url: https://api.groq.com/openai/v1
+    temperature: 0.7
+    max_tokens: 4096
+    timeout: 60
+    extra_headers: {}                 # e.g. HTTP-Referer for OpenRouter
+    system_prompt: ""                 # auto-prepended if user messages lack one
+
+  gemini:
+    api_family: gemini                # google-genai SDK
+    enabled: true
+    api_key_env: GEMINI_API_KEY
+    model: gemini-2.0-flash
+    temperature: 0.7
+    max_tokens: 8192
+    timeout: 60
+    system_prompt: ""
+
+  openrouter:
+    api_family: openai-compatible
+    enabled: false
+    api_key_env: OPENROUTER_API_KEY
+    model: anthropic/claude-3.7-sonnet
+    base_url: https://openrouter.ai/api/v1
+    temperature: 0.7
+    max_tokens: 4096
+    timeout: 60
+    extra_headers:
+      X-Title: manus-open-sandbox
+    system_prompt: ""
+
+  claude:
+    api_family: anthropic
+    enabled: true
+    api_key_env: ANTHROPIC_API_KEY
+    model: claude-sonnet-4-20250514
+    temperature: 0.7
+    max_tokens: 4096
+    timeout: 60
+    system_prompt: ""
+
+  # template: any other OpenAI-compatible service via config only
+  # my_custom:
+  #   api_family: openai-compatible
+  #   enabled: true
+  #   api_key_env: MY_CUSTOM_API_KEY
+  #   model: my-model
+  #   base_url: https://my-service.example.com/v1
