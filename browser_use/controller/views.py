@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 # Action Input Models
 class SearchGoogleAction(BaseModel):
@@ -47,5 +47,4 @@ class NoParamsAction(BaseModel):
         # No matter what the user sends, discard it and return empty.
         return {}
     
-    class Config:
-        extra = 'allow'
+    model_config = ConfigDict(extra='allow')

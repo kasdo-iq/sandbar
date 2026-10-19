@@ -62,7 +62,9 @@ class TerminalInputMessage(BaseModel):
     mode: TerminalCommandMode | None = None
     exec_dir: str | None = None
 
-    def create_response(self, type: TerminalOutputMessageType, result: str, output: list[str], terminal_status: TerminalStatus, sub_command_index: int):
+    def create_response(self, type: TerminalOutputMessageType, result: str, output: list[str], terminal_status: TerminalStatus, sub_command_index: int = 0):
+        # Note: `sub_command_index` defaulted to 0 (AUDIT bug #3): the WebSocket
+        # fast-paths call this without the argument and previously raised TypeError.
         return TerminalOutputMessage(
             type=type,
             terminal=self.terminal,

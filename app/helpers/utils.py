@@ -118,7 +118,7 @@ class FilePartReader:
         self._file.seek(offset)
         return self._file.read(self.part_size)
 
-async def upload_file_parts(file_path, presigned_urls: List[PresignedUrlPart], part_size, max_concurrent) -> List[PartUploadResult]:
+async def upload_file_parts(file_path, presigned_urls: List[PresignedUrlPart], part_size, max_concurrent: int = 5) -> List[PartUploadResult]:
     '''
     并发上传文件分片 (Concurrently upload file parts)
     
@@ -126,7 +126,7 @@ async def upload_file_parts(file_path, presigned_urls: List[PresignedUrlPart], p
         file_path: 文件路径 (File path)
         presigned_urls: 预签名URL列表 (List of presigned URLs)
         part_size: 分片大小（字节） (Part size in bytes)
-        max_concurrent: 最大并发数 (Maximum concurrency)
+        max_concurrent: 最大并发数 (Maximum concurrency, default 5)
     
     Returns:
         List[PartUploadResult]: Results of all part uploads

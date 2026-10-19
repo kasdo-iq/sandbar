@@ -156,7 +156,11 @@ async def multipart_upload(cmd: MultipartUploadRequest = Body(...)):
         )
         
         if failed > 0:
-            return response, 206
+            # AUDIT bug fix: previously `return response, 206` — FastAPI serialized
+            # the tuple as a JSON array `[model, 206]` and never set the 206 status.
+            # Now returns the documented body with the documented 206 status.
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=206, content=response.model_dump())
             
         return response
     except HTTPException:
