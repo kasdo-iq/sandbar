@@ -38,14 +38,21 @@ class ApiClient:
         host = os.getenv('RUNTIME_API_HOST', 'https://api.manus.im')
         self.host = f'{host}/apiproxy.v1.ApiProxyService/CallApi'
         token_path = Path().home().joinpath('.secrets/sandbox_api_token')
-        if not token_path.is_file():
-            raise RuntimeError(
-                f"Missing sandbox API token file: {token_path}. "
-                "Create it (POST /init-sandbox with secrets "
-                "{'sandbox_api_token': '<value>'}) or docker cp one in."
-            )
-        with token_path.open('r') as f:
-            self.token = f.read().strip()
+        if token_path.is_file():
+            with token_path.open('r') as f:
+                self.token = f.read().strip()
+        else:
+            # Local/dev fallback: the same env var the sandbox server validates.
+            # The file still wins when present, so container behavior is unchanged.
+            self.token = os.getenv('SANDBOX_API_TOKEN', '').strip()
+            if not self.token:
+                raise RuntimeError(
+                    f"Missing sandbox API token file: {token_path} and "
+                    "SANDBOX_API_TOKEN is unset. Create the file "
+                    "(POST /init-sandbox with secrets "
+                    "{'sandbox_api_token': '<value>'}) or docker cp one in, "
+                    "or export SANDBOX_API_TOKEN."
+                )
 
     def _convert_bool_to_str(self, data: dict | None) -> dict | None:
         """Convert boolean values in dictionary to strings.
