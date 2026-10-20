@@ -163,3 +163,14 @@ cython_debug/
 # Local, secret-filled config copies (examples are committed; these are not)
 providers.yaml
 .env
+.env.*
+!.env.example
+
+# Project artifacts and caches
+screenshots/
+*.webp
+.ruff_cache/
+.pytest_cache/
+*.log
+Thumbs.db
+.DS_Store

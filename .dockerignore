@@ -1,13 +1,33 @@
-# .dockerignore
+# --- VCS / editor ---
 .git
+.gitignore
+.gitattributes
+.github
+.idea
+.vscode
+
+# --- Python caches ---
 __pycache__
 *.pyc
 *.pyo
 *.pyd
-.DS_Store
-.env
-providers.yaml
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# --- Local environments ---
 .venv
 venv
+
+# --- Secrets / local config: never bake these into an image ---
+.env
+.env.*
+providers.yaml
+
+# --- Tests, artifacts, docs ---
+tests
 test
-docs
+screenshots
+*.webp
+*.log
+*.md
