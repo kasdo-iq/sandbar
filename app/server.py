@@ -642,6 +642,24 @@ async def init_sandbox(request: InitSandboxRequest):
         logger.error(f"Error processing secrets: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process secrets: {e!s}")
 
+UI_INDEX_PATH = Path(__file__).resolve().parent / "static" / "ui" / "index.html"
+
+
+@app.get("/ui", tags=["ui"])
+async def chat_ui():
+    """Serve the single-page chat UI.
+
+    The page itself is exempt from token auth (like GET /healthz). Every API
+    call it makes (POST /agent/run, GET /llm/providers) still requires the
+    token, which the page keeps in sessionStorage.
+    """
+    if not UI_INDEX_PATH.is_file():
+        raise HTTPException(
+            status_code=404, detail="UI not installed (app/static/ui/index.html missing)"
+        )
+    return FileResponse(UI_INDEX_PATH, media_type="text/html; charset=utf-8")
+
+
 @app.get("/healthz")
 async def healthz():
     """Health check endpoint."""

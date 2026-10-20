@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sandbox Agent</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1017;
+    --panel: #141924;
+    --panel-2: #1b2130;
+    --border: #283142;
+    --text: #e7ecf3;
+    --muted: #93a1b5;
+    --accent: #4f9cf9;
+    --accent-dim: #1d3a5f;
+    --danger: #ff6b6b;
+    --ok: #3ddc97;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Arabic", sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { font-weight: 650; letter-spacing: .2px; }
+  .brand small { color: var(--muted); font-weight: 400; margin-inline-start: 8px; }
+  .spacer { flex: 1 1 auto; }
+  header select, header button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  header select:focus-visible, header button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  header button:hover { border-color: var(--accent); }
+  #status { color: var(--muted); font-size: 12px; }
+
+  /* ---------- messages ---------- */
+  main {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 18px 16px 8px;
+    scroll-behavior: smooth;
+  }
+  .thread { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .msg { display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .msg.assistant { justify-content: flex-start; }
+  .bubble {
+    max-width: min(760px, 100%);
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--panel);
+    overflow-wrap: anywhere;
+  }
+  .msg.user .bubble { background: var(--accent-dim); border-color: #2a4f7a; }
+  .segments { display: flex; flex-direction: column; gap: 8px; }
+  .md { unicode-bidi: plaintext; text-align: start; }
+  .md > :first-child { margin-top: 0; }
+  .md > :last-child { margin-bottom: 0; }
+  .md p { margin: .45em 0; }
+  .md h3, .md h4, .md h6 { margin: .7em 0 .3em; line-height: 1.25; }
+  .md ul, .md ol { margin: .4em 0; padding-inline-start: 1.4em; }
+  .md code {
+    background: #0a0d13;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 5px;
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .md pre.code {
+    background: #0a0d13;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    overflow-x: auto;
+    margin: .5em 0;
+  }
+  .md pre.code code { background: none; border: 0; padding: 0; }
+  .md a { color: var(--accent); }
+  .msg.system .bubble { background: transparent; border-style: dashed; color: var(--muted); }
+
+  .thinking { color: var(--muted); font-size: 13px; }
+  .thinking span { animation: blink 1.2s infinite; }
+  .thinking span:nth-child(2) { animation-delay: .2s; }
+  .thinking span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
+
+  .note { font-size: 13px; color: var(--muted); }
+  .note.err { color: var(--danger); }
+
+  /* ---------- tool calls ---------- */
+  details.tool {
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: #10151e;
+    padding: 6px 10px;
+  }
+  details.tool > summary {
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    list-style: none;
+    font-size: 13px;
+  }
+  details.tool > summary::-webkit-details-marker { display: none; }
+  details.tool > summary::before { content: "▸"; color: var(--muted); }
+  details.tool[open] > summary::before { content: "▾"; }
+  .tool-name { color: var(--accent); font-weight: 600; }
+  .tool-meta {
+    color: var(--muted);
+    font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tool-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-top: 8px; }
+  details.tool pre {
+    margin: 4px 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 320px;
+    overflow: auto;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #c9d4e3;
+  }
+
+  /* ---------- composer ---------- */
+  form.composer {
+    position: sticky;
+    bottom: 0;
+    border-top: 1px solid var(--border);
+    background: linear-gradient(to top, var(--bg) 60%, rgba(13, 16, 23, .85));
+    padding: 12px 16px 16px;
+  }
+  .composer-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 8px;
+  }
+  .composer textarea {
+    flex: 1 1 auto;
+    resize: none;
+    min-height: 42px;
+    max-height: 200px;
+    background: transparent;
+    color: var(--text);
+    border: 0;
+    outline: none;
+    font: inherit;
+    padding: 9px 8px;
+    unicode-bidi: plaintext;
+  }
+  .composer textarea::placeholder { color: #6f7d92; }
+  .btn {
+    background: var(--accent);
+    color: #07111d;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 9px 14px;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+  }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.ghost { background: var(--panel-2); color: var(--text); border-color: var(--border); font-weight: 500; }
+  .btn.ghost:hover { border-color: var(--accent); }
+  .btn.stop { background: #3a1d22; color: #ffb3b3; border-color: #5d2a31; }
+  #mic.on { color: var(--danger); border-color: var(--danger); }
+  .hint { max-width: 900px; margin: 8px auto 0; color: var(--muted); font-size: 11.5px; }
+
+  /* ---------- token gate ---------- */
+  .gate {
+    position: fixed;
+    inset: 0;
+    background: rgba(7, 10, 15, .82);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 20;
+  }
+  .gate[hidden] { display: none; }
+  .gate-card {
+    width: min(440px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+  }
+  .gate-card h2 { margin: 0 0 6px; font-size: 17px; }
+  .gate-card p { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+  .gate-card input {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    font: inherit;
+    padding: 10px 12px;
+  }
+  .gate-card input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .gate-msg { min-height: 18px; margin-top: 10px; font-size: 13px; color: var(--danger); }
+  .gate-actions { display: flex; gap: 8px; margin-top: 6px; }
+
+  @media (max-width: 620px) {
+    .brand small { display: none; }
+    header { gap: 6px; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">Sandbox Agent<small>http://127.0.0.1:8330</small></div>
+    <div class="spacer"></div>
+    <span id="status">ready</span>
+    <select id="provider" title="Provider (from GET /llm/providers)" aria-label="Provider">
+      <option value="">default provider</option>
+    </select>
+    <button type="button" id="new-chat" title="Clear this conversation">New chat</button>
+    <button type="button" id="forget" title="Forget the saved token for this tab">Lock</button>
+  </header>
+
+  <main id="messages">
+    <div class="thread" id="thread"></div>
+  </main>
+
+  <form class="composer" id="composer">
+    <div class="composer-inner">
+      <textarea id="input" rows="1" dir="auto"
+        placeholder="Message the agent…  (Enter sends, Shift+Enter adds a line)"></textarea>
+      <select id="lang" hidden aria-label="Voice language">
+        <option value="ar-IQ">ar-IQ</option>
+        <option value="en-US">en-US</option>
+      </select>
+      <button type="button" class="btn ghost" id="mic" hidden title="Voice input">Mic</button>
+      <button type="button" class="btn stop" id="stop" hidden>Stop</button>
+      <button type="submit" class="btn" id="send">Send</button>
+    </div>
+    <div class="hint">
+      Token lives in sessionStorage for this tab only. Each message is its own
+      <code>POST /agent/run</code> (the API is stateless), so history stays on this page.
+    </div>
+  </form>
+
+  <div class="gate" id="gate" hidden>
+    <form class="gate-card" id="gate-form">
+      <h2>Sandbox token</h2>
+      <p>Paste the value of <code>SANDBOX_API_TOKEN</code>. It is kept in sessionStorage
+         for this tab only — never in the URL or localStorage.</p>
+      <input id="gate-token" type="password" autocomplete="off" spellcheck="false"
+             placeholder="x-sandbox-token value" dir="ltr" />
+      <div class="gate-msg" id="gate-msg"></div>
+      <div class="gate-actions">
+        <button type="submit" class="btn">Unlock</button>
+      </div>
+    </form>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  const TOKEN_KEY = 'sandbox_token';
+  const TRUNCATE_CHARS = 4000;
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    thread: $('thread'),
+    messages: $('messages'),
+    form: $('composer'),
+    input: $('input'),
+    send: $('send'),
+    stop: $('stop'),
+    provider: $('provider'),
+    mic: $('mic'),
+    lang: $('lang'),
+    gate: $('gate'),
+    gateForm: $('gate-form'),
+    gateToken: $('gate-token'),
+    gateMsg: $('gate-msg'),
+    newChat: $('new-chat'),
+    forget: $('forget'),
+    status: $('status'),
+  };
+
+  let token = sessionStorage.getItem(TOKEN_KEY) || '';
+  let controller = null;
+  let busy = false;
+
+  /* ============================ small helpers ============================ */
+
+  const truncate = (text, max) => {
+    const s = String(text == null ? '' : text);
+    return s.length > max ? s.slice(0, max) + '\n… (' + (s.length - max) + ' more chars)' : s;
+  };
+
+  const pretty = (value) => {
+    if (typeof value === 'string') return value;
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  };
+
+  function setStatus(text) { els.status.textContent = text; }
+
+  function scrollToBottom() {
+    els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  function setBusy(value) {
+    busy = value;
+    els.send.disabled = value;
+    els.stop.hidden = !value;
+    setStatus(value ? 'working…' : 'ready');
+  }
+
+  /* ============================ safe markdown ============================ */
+  // Everything from the model is escaped first; only the tags generated below
+  // are ever inserted as HTML. Links are restricted to http(s) URLs.
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  function mdToHtml(source) {
+    const blocks = [];
+    let text = String(source).replace(/```([A-Za-z0-9_+-]*)\n?([\s\S]*?)```/g, (_m, _lang, code) => {
+      blocks.push(code);
+      return '\u0000' + (blocks.length - 1) + '\u0000';
+    });
+
+    let html = escapeHtml(text);
+
+    html = html
+      .replace(/^###### (.+)$/gm, '<h6>$1</h6>')
+      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+      .replace(/^#{1,2} (.+)$/gm, '<h3>$1</h3>')
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)"']+)\)/g,
+        (_m, label, url) => '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + '</a>');
+
+    html = html.replace(/(?:^|\n)((?:[-*] .+(?:\n|$))+)/g, (_m, block) => {
+      const items = block.trim().split('\n')
+        .map((line) => '<li>' + line.replace(/^[-*] /, '') + '</li>').join('');
+      return '\n<ul>' + items + '</ul>';
+    });
+    html = html.replace(/(?:^|\n)((?:\d+\. .+(?:\n|$))+)/g, (_m, block) => {
+      const items = block.trim().split('\n')
+        .map((line) => '<li>' + line.replace(/^\d+\. /, '') + '</li>').join('');
+      return '\n<ol>' + items + '</ol>';
+    });
+
+    html = html.split(/\n{2,}/).map((chunk) => {
+      if (/^\s*<(ul|ol|h[3-6]|pre)/.test(chunk)) return chunk;
+      if (/^\s*\u0000\d+\u0000\s*$/.test(chunk)) return chunk.trim();
+      return '<p>' + chunk.replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+
+    return html.replace(/\u0000(\d+)\u0000/g, (_m, i) =>
+      '<pre class="code"><code>' + escapeHtml(blocks[Number(i)].replace(/\n$/, '')) + '</code></pre>');
+  }
+
+  /* ============================ messages ============================ */
+
+  function addBubble(role) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + role;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    const body = document.createElement('div');
+    body.className = 'segments';
+    body.setAttribute('dir', 'auto');
+    bubble.appendChild(body);
+    wrap.appendChild(bubble);
+    els.thread.appendChild(wrap);
+    scrollToBottom();
+    return body;
+  }
+
+  function addUserMessage(text) {
+    const body = addBubble('user');
+    const md = document.createElement('div');
+    md.className = 'md';
+    md.setAttribute('dir', 'auto');
+    md.innerHTML = mdToHtml(text);
+    body.appendChild(md);
+    scrollToBottom();
+  }
+
+  function assistantTurn() {
+    const body = addBubble('assistant');
+    let textEl = null;
+    let buffer = '';
+    let lastChunk = '';
+    const toolResults = new Map();
+
+    const thinking = document.createElement('div');
+    thinking.className = 'thinking';
+    thinking.hidden = true;
+    thinking.innerHTML = 'thinking<span>.</span><span>.</span><span>.</span>';
+    body.appendChild(thinking);
+
+    function append(block) { body.insertBefore(block, thinking); }
+
+    function ensureText() {
+      if (!textEl) {
+        textEl = document.createElement('div');
+        textEl.className = 'md';
+        textEl.setAttribute('dir', 'auto');
+        append(textEl);
+      }
+      return textEl;
+    }
+
+    function label(text) {
+      const div = document.createElement('div');
+      div.className = 'tool-label';
+      div.textContent = text;
+      return div;
+    }
+
+    function addTool(isNew, id, name, args, result) {
+      if (!isNew && toolResults.has(id)) return toolResults.get(id);
+      const details = document.createElement('details');
+      details.className = 'tool';
+
+      const summary = document.createElement('summary');
+      const nameEl = document.createElement('span');
+      nameEl.className = 'tool-name';
+      nameEl.textContent = name || 'tool';
+      const meta = document.createElement('span');
+      meta.className = 'tool-meta';
+      meta.textContent = truncate(pretty(args || {}).replace(/\s+/g, ' '), 90);
+      summary.append(nameEl, meta);
+
+      const argsPre = document.createElement('pre');
+      argsPre.textContent = truncate(pretty(args || {}), TRUNCATE_CHARS);
+      const resultPre = document.createElement('pre');
+      resultPre.textContent = result === undefined ? 'running…' : truncate(pretty(result), TRUNCATE_CHARS);
+
+      details.append(summary, label('arguments'), argsPre, label('result'), resultPre);
+      append(details);
+      if (id) toolResults.set(id, resultPre);
+      textEl = null; // later assistant text starts a new block
+      return resultPre;
+    }
+
+    return {
+      pushText(chunk) {
+        if (!chunk) return;
+        if (!textEl) buffer = ''; // a tool call closed the previous block; start fresh
+        ensureText().innerHTML = mdToHtml((buffer = buffer ? buffer + '\n' + chunk : chunk));
+        lastChunk = chunk;
+        scrollToBottom();
+      },
+      get lastText() { return lastChunk; },
+      thinking(on) { thinking.hidden = !on; if (on) scrollToBottom(); },
+      addTool(id, name, args) { addTool(true, id, name, args, undefined); },
+      setToolResult(id, name, result) {
+        const pre = toolResults.get(id) || addTool(true, id, name, {}, undefined);
+        pre.textContent = truncate(pretty(result), TRUNCATE_CHARS);
+        scrollToBottom();
+      },
+      note(text, kind) {
+        const div = document.createElement('div');
+        div.className = 'note' + (kind ? ' ' + kind : '');
+        div.textContent = text;
+        append(div);
+        scrollToBottom();
+      },
+      text() { return buffer; },
+    };
+  }
+
+  /* ============================ SSE parsing ============================ */
+
+  async function readSSE(response, onEvent) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+
+      let split;
+      while ((split = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+        const data = frame.split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+          .join('\n');
+        if (!data) continue;
+        if (data === '[DONE]') return;
+        try { onEvent(JSON.parse(data)); } catch { /* ignore malformed frame */ }
+      }
+    }
+  }
+
+  /* ============================ token handling ============================ */
+
+  function showGate(message) {
+    els.gate.hidden = false;
+    els.gateMsg.textContent = message || '';
+    els.gateToken.value = '';
+    els.gateToken.focus();
+  }
+
+  function hideGate() { els.gate.hidden = true; }
+
+  function saveToken(value) {
+    token = value;
+    sessionStorage.setItem(TOKEN_KEY, value);
+  }
+
+  function forgetToken() {
+    token = '';
+    sessionStorage.removeItem(TOKEN_KEY);
+    els.provider.innerHTML = '<option value="">default provider</option>';
+    showGate('');
+  }
+
+  function handleUnauthorized() {
+    forgetToken();
+    els.gateMsg.textContent = 'Token rejected (401). Paste it again.';
+  }
+
+  /* ============================ providers ============================ */
+
+  async function loadProviders() {
+    if (!token) return;
+    try {
+      const res = await fetch('/llm/providers', { headers: { 'x-sandbox-token': token } });
+      if (res.status === 401) return handleUnauthorized();
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const list = await res.json();
+      const select = els.provider;
+      select.innerHTML = '<option value="">default provider</option>';
+      for (const p of Array.isArray(list) ? list : []) {
+        const option = document.createElement('option');
+        option.value = p.name;
+        const parts = [p.name];
+        if (p.model) parts.push(p.model);
+        if (p.default) parts.push('default');
+        if (p.enabled === false) parts.push('disabled');
+        else if (p.configured === false) parts.push('no key');
+        option.textContent = parts.join(' · ');
+        option.disabled = p.enabled === false || p.configured === false;
+        select.appendChild(option);
+      }
+    } catch (err) {
+      setStatus('providers unavailable');
+      console.warn('provider list failed:', err.message);
+    }
+  }
+
+  /* ============================ the run ============================ */
+
+  function readableError(err) {
+    const name = (err && err.name) ? err.name : 'Error';
+    const message = (err && err.message) ? err.message : String(err);
+    if (name === 'TypeError' && /fetch|network|load failed/i.test(message)) {
+      return 'Cannot reach the sandbox at ' + location.origin + ' — is the server running?';
+    }
+    return name === 'Error' ? message : name + ': ' + message;
+  }
+
+  async function runAgent(goal) {
+    const turn = assistantTurn();
+    const local = new AbortController();
+    controller = local;
+    setBusy(true);
+    turn.thinking(true);
+    let finished = false;
+
+    try {
+      const res = await fetch('/agent/run', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'x-sandbox-token': token,
+        },
+        // /agent/run is stateless: one goal per request, no history field.
+        body: JSON.stringify(els.provider.value ? { goal, provider: els.provider.value } : { goal }),
+        signal: local.signal,
+      });
+
+      if (res.status === 401) return handleUnauthorized();
+      if (res.status === 429) throw new Error('Rate limited (429) — wait a moment and try again.');
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error('HTTP ' + res.status + (detail ? ' — ' + truncate(detail, 200) : ''));
+      }
+      if (!res.body) throw new Error('This browser cannot read streaming responses.');
+
+      await readSSE(res, (ev) => {
+        switch (ev.type) {
+          case 'step_start':
+            turn.thinking(true);
+            break;
+          case 'assistant_text':
+            turn.thinking(false);
+            turn.pushText(ev.content || '');
+            break;
+          case 'tool_call':
+            turn.thinking(false);
+            turn.addTool(ev.tool_call && ev.tool_call.id, ev.tool_call && ev.tool_call.name,
+              ev.tool_call && ev.tool_call.arguments);
+            break;
+          case 'tool_result':
+            turn.setToolResult(ev.tool_call_id, ev.name, ev.result);
+            break;
+          case 'final_answer':
+            turn.thinking(false);
+            // the loop emits the final text as assistant_text too; avoid doubling it
+            if (ev.content && ev.content !== turn.lastText) turn.pushText(ev.content);
+            finished = true;
+            break;
+          case 'error':
+            turn.thinking(false);
+            turn.note(ev.content || 'agent error', 'err');
+            finished = true;
+            break;
+          default:
+            break;
+        }
+      });
+
+      if (!finished) turn.note('stream ended without a final answer', '');
+    } catch (err) {
+      if (err && err.name === 'AbortError') turn.note('stopped', '');
+      else turn.note(readableError(err), 'err');
+    } finally {
+      turn.thinking(false);
+      setBusy(false);
+      controller = null;
+    }
+  }
+
+  /* ============================ composer ============================ */
+
+  function autoGrow() {
+    els.input.style.height = 'auto';
+    els.input.style.height = Math.min(els.input.scrollHeight, 200) + 'px';
+  }
+
+  function submit() {
+    const text = els.input.value.trim();
+    if (!text || busy) return;
+    if (!token) { showGate(''); return; }
+    els.input.value = '';
+    autoGrow();
+    addUserMessage(text);
+    runAgent(text);
+  }
+
+  els.form.addEventListener('submit', (event) => { event.preventDefault(); submit(); });
+
+  els.input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      submit();
+    }
+  });
+  els.input.addEventListener('input', autoGrow);
+
+  els.stop.addEventListener('click', () => { if (controller) controller.abort(); });
+  els.forget.addEventListener('click', forgetToken);
+  els.newChat.addEventListener('click', () => {
+    if (busy && controller) controller.abort();
+    els.thread.innerHTML = '';
+  });
+
+  els.gateForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const value = els.gateToken.value.trim();
+    if (!value) { els.gateMsg.textContent = 'Paste the token first.'; return; }
+    saveToken(value);
+    hideGate();
+    loadProviders();
+    els.input.focus();
+  });
+
+  /* ============================ voice input (optional) ============================ */
+  (function setupVoice() {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) return; // unsupported: both controls stay hidden
+
+    els.mic.hidden = false;
+    els.lang.hidden = false;
+    let recognition = null;
+
+    els.mic.addEventListener('click', () => {
+      if (recognition) { recognition.stop(); return; }
+      recognition = new Recognition();
+      recognition.lang = els.lang.value;
+      recognition.interimResults = false;
+      recognition.continuous = false;
+      recognition.onresult = (event) => {
+        const said = Array.from(event.results).map((r) => r[0].transcript).join(' ').trim();
+        if (!said) return;
+        els.input.value = (els.input.value ? els.input.value.replace(/\s*$/, ' ') : '') + said;
+        autoGrow();
+        els.input.focus();
+      };
+      recognition.onend = () => { recognition = null; els.mic.classList.remove('on'); };
+      recognition.onerror = () => { recognition = null; els.mic.classList.remove('on'); setStatus('voice input unavailable'); };
+      els.mic.classList.add('on');
+      try { recognition.start(); } catch { recognition = null; els.mic.classList.remove('on'); }
+    });
+  })();
+
+  /* ============================ boot ============================ */
+  if (token) {
+    hideGate();
+    loadProviders();
+  } else {
+    showGate('');
+  }
+  els.input.focus();
+})();
+</script>
+</body>
+</html>

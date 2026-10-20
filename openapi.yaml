@@ -146,6 +146,18 @@ paths:
           description: Sandbox initialized.
         '500':
           description: Error processing secrets.
+  /ui:
+    get:
+      summary: Chat UI
+      description: >
+        Single-page chat UI (no build step, inline CSS/JS) that drives POST /agent/run.
+        The page is exempt from token auth like GET /healthz; every API call it makes
+        still requires the token.
+      responses:
+        '200':
+          description: HTML page.
+        '404':
+          description: UI assets not installed.
   /healthz:
     get:
       summary: Health Check

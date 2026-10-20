@@ -6,8 +6,8 @@
   the server refuses to serve unless `AUTH_DISABLED=true` is explicitly set.
 - Constant-time comparison (hmac.compare_digest); tokens are never logged.
 - Per-IP rate limiting on failed attempts (in-memory sliding window).
-- `applied` via ASGI middleware on the FastAPI app, exempting GET /healthz
-  and OPTIONS preflight requests.
+- `applied` via ASGI middleware on the FastAPI app, exempting GET /healthz,
+  GET /ui (the static chat page) and OPTIONS preflight requests.
 """
 
 from __future__ import annotations
@@ -166,13 +166,13 @@ def verify_ws_token(headers: dict[str, Any], query_params: dict[str, Any]) -> No
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """Applies token auth to every HTTP route except GET /healthz.
+    """Applies token auth to every HTTP route except GET /healthz and GET /ui.
 
     Added by app/server.py. CORS middleware is added first (outermost) so
     OPTIONS preflight requests never reach this module.
     """
 
-    EXEMPT_PREFIXES = ("/healthz",)
+    EXEMPT_PREFIXES = ("/healthz", "/ui")
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
