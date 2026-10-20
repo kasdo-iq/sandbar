@@ -1,6 +1,6 @@
-"""web_search tool: Tavily / Parallel / SearXNG chosen automatically by env.
+"""web_search tool: Tavily / Serper / SearXNG chosen automatically by env.
 
-Backend priority: TAVILY_API_KEY > PARALLEL_API_KEY > SEARXNG_URL.
+Backend priority: TAVILY_API_KEY > SERPER_API_KEY > SEARXNG_URL.
 All keys come from the env; with none configured the tool self-disables
 (with a status='disabled' result instead of an error).
 """
@@ -17,22 +17,7 @@ from app.logger import logger
 from app.tools.registry import ToolSpec
 
 RESULT_LIMIT_DEFAULT = 5
-
-# Parallel Search mode presets accepted by the API (see docs.parallel.ai).
-PARALLEL_MODES = ("turbo", "fast", "basic", "advanced")
-PARALLEL_EXCERPT_MAX_CHARS = 800
-
-
-def _parallel_mode() -> str:
-    """Env-configured Parallel search mode, falling back to 'fast' when invalid."""
-    mode = (os.getenv("PARALLEL_SEARCH_MODE") or "fast").strip().lower()
-    if mode not in PARALLEL_MODES:
-        logger.warning(
-            f"[web_search] invalid PARALLEL_SEARCH_MODE={mode!r}; using 'fast' "
-            f"(valid: {', '.join(PARALLEL_MODES)})"
-        )
-        return "fast"
-    return mode
+SERPER_ENDPOINT = "https://google.serper.dev/search"
 
 
 async def _tavily(query: str, count: int) -> list[dict[str, Any]]:
@@ -49,39 +34,33 @@ async def _tavily(query: str, count: int) -> list[dict[str, Any]]:
     ]
 
 
-async def _parallel(query: str, count: int) -> list[dict[str, Any]]:
-    async with httpx.AsyncClient(timeout=60) as client:
+async def _serper(query: str, count: int) -> list[dict[str, Any]]:
+    async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
-            "https://api.parallel.ai/v1/search",
-            json={
-                "objective": query,
-                "search_queries": [query],
-                "mode": _parallel_mode(),
-                # keep excerpts close to the previous Brave snippet size
-                "advanced_settings": {
-                    "excerpt_settings": {"max_chars_per_result": PARALLEL_EXCERPT_MAX_CHARS}
-                },
-            },
+            SERPER_ENDPOINT,
+            json={"q": query, "num": count},
             headers={
-                "x-api-key": os.environ["PARALLEL_API_KEY"],
+                "X-API-KEY": os.environ["SERPER_API_KEY"],
                 "Content-Type": "application/json",
             },
         )
         resp.raise_for_status()
         data = resp.json()
-    return _parse_parallel_results(data, count)
+    return _parse_serper_results(data, count)
 
 
-def _parse_parallel_results(data: dict[str, Any], count: int) -> list[dict[str, Any]]:
-    """Map Parallel's {url, title, excerpts[]} to the common {title, url, snippet} shape."""
+def _parse_serper_results(data: dict[str, Any], count: int) -> list[dict[str, Any]]:
+    """Map Serper's {organic: [{title, link, snippet}]} to the common {title, url, snippet} shape."""
     parsed: list[dict[str, Any]] = []
-    for r in data.get("results", [])[:count]:
-        excerpts = [e for e in (r.get("excerpts") or []) if e]
+    for r in (data.get("organic") or [])[:count]:
+        url = r.get("link") or ""
+        if not url:  # skip link-less entries (Serper mixes in answer boxes/people-also-ask)
+            continue
         parsed.append(
             {
                 "title": r.get("title") or "",  # API may send title: null
-                "url": r.get("url", ""),
-                "snippet": excerpts[0] if excerpts else "",
+                "url": url,
+                "snippet": r.get("snippet") or "",
             }
         )
     return parsed
@@ -102,8 +81,8 @@ async def _searxng(query: str, count: int) -> list[dict[str, Any]]:
 def _pick_backend() -> tuple[str, Any] | None:
     if os.getenv("TAVILY_API_KEY"):
         return "tavily", _tavily
-    if os.getenv("PARALLEL_API_KEY"):
-        return "parallel", _parallel
+    if os.getenv("SERPER_API_KEY"):
+        return "serper", _serper
     if os.getenv("SEARXNG_URL"):
         return "searxng", _searxng
     return None
@@ -118,7 +97,7 @@ async def run_web_search(arguments: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "disabled",
             "error": (
-                "web_search is disabled: set TAVILY_API_KEY, PARALLEL_API_KEY "
+                "web_search is disabled: set TAVILY_API_KEY, SERPER_API_KEY "
                 "or SEARXNG_URL to enable it"
             ),
         }
@@ -140,7 +119,7 @@ async def run_web_search(arguments: dict[str, Any]) -> dict[str, Any]:
 TOOL = ToolSpec(
     name="web_search",
     description=(
-        "Web search via the configured backend (Tavily/Parallel/SearXNG). "
+        "Web search via the configured backend (Tavily/Serper/SearXNG). "
         "Returns titles, URLs and snippets. Use short keyword queries "
         "(3-6 words); prefer several focused searches over one long question. "
         "Disabled with a clear message when no API key is configured."

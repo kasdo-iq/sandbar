@@ -100,7 +100,7 @@ def test_web_search_disabled_without_keys(monkeypatch: pytest.MonkeyPatch) -> No
     from app.tools import web_search as ws
 
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    monkeypatch.delenv("PARALLEL_API_KEY", raising=False)
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
     monkeypatch.delenv("SEARXNG_URL", raising=False)
     result = asyncio.run(ws.run_web_search({"query": "test"}))
     assert result["status"] == "disabled"
@@ -111,50 +111,47 @@ def test_web_search_backend_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.tools import web_search as ws
 
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    monkeypatch.delenv("SEARXNG_URL", raising=False)
-    monkeypatch.setenv("PARALLEL_API_KEY", "k")
-    assert ws._pick_backend() == ("parallel", ws._parallel)
+    monkeypatch.setenv("SERPER_API_KEY", "k")
+    assert ws._pick_backend() == ("serper", ws._serper)
     monkeypatch.setenv("TAVILY_API_KEY", "t")
     assert ws._pick_backend()[0] == "tavily"  # tavily keeps priority
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    monkeypatch.setenv("SEARXNG_URL", "http://searx.local")
+    assert ws._pick_backend() == ("searxng", ws._searxng)  # searxng last
 
 
 @pytest.mark.smoke
-def test_web_search_parallel_result_mapping() -> None:
-    from app.tools.web_search import _parse_parallel_results
+def test_web_search_serper_result_mapping() -> None:
+    from app.tools.web_search import _parse_serper_results
 
     data = {
-        "results": [
-            {"title": "T1", "url": "https://a.example", "excerpts": ["alpha text", "more"]},
-            {"title": "T2", "url": "https://b.example", "excerpts": []},
-            {"title": None, "url": "https://c.example", "excerpts": ["gamma"]},
-            {"title": "over the limit", "url": "https://d.example", "excerpts": ["x"]},
+        "organic": [
+            {"title": "T1", "link": "https://a.example", "snippet": "alpha text"},
+            {"title": "no link here", "snippet": "must be skipped"},
+            {"title": None, "link": "https://c.example", "snippet": "gamma"},
+            {"title": "T2", "link": "https://b.example"},
+            {"title": "over the limit", "link": "https://d.example", "snippet": "x"},
         ]
     }
-    parsed = _parse_parallel_results(data, 3)
-    assert parsed == [
+    # count limits how many organic entries are read; link-less entries are dropped
+    assert _parse_serper_results(data, 3) == [
         {"title": "T1", "url": "https://a.example", "snippet": "alpha text"},
-        {"title": "T2", "url": "https://b.example", "snippet": ""},
         # title: null must not leak through as None
         {"title": "", "url": "https://c.example", "snippet": "gamma"},
     ]
+    assert _parse_serper_results(data, 10) == [
+        {"title": "T1", "url": "https://a.example", "snippet": "alpha text"},
+        {"title": "", "url": "https://c.example", "snippet": "gamma"},
+        {"title": "T2", "url": "https://b.example", "snippet": ""},
+        {"title": "over the limit", "url": "https://d.example", "snippet": "x"},
+    ]
+    assert _parse_serper_results({}, 5) == []  # missing "organic"
+    assert _parse_serper_results({"organic": None}, 5) == []
 
 
 @pytest.mark.smoke
-def test_web_search_parallel_mode_validation(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.tools import web_search as ws
-
-    monkeypatch.setenv("PARALLEL_SEARCH_MODE", "turbo")
-    assert ws._parallel_mode() == "turbo"
-    monkeypatch.setenv("PARALLEL_SEARCH_MODE", " Advanced ")
-    assert ws._parallel_mode() == "advanced"
-    monkeypatch.setenv("PARALLEL_SEARCH_MODE", "turboo")  # typo -> safe default
-    assert ws._parallel_mode() == "fast"
-    monkeypatch.delenv("PARALLEL_SEARCH_MODE", raising=False)
-    assert ws._parallel_mode() == "fast"
-
-
-@pytest.mark.smoke
-def test_web_search_parallel_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_web_search_serper_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.tools import web_search as ws
 
     captured: dict = {}
@@ -164,7 +161,7 @@ def test_web_search_parallel_request_shape(monkeypatch: pytest.MonkeyPatch) -> N
             return None
 
         def json(self) -> dict:
-            return {"results": [{"url": "https://x.example", "title": None, "excerpts": ["body"]}]}
+            return {"organic": [{"link": "https://x.example", "title": None, "snippet": "body"}]}
 
     class FakeClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -180,45 +177,39 @@ def test_web_search_parallel_request_shape(monkeypatch: pytest.MonkeyPatch) -> N
             captured.update(url=url, json=json, headers=headers)
             return FakeResponse()
 
-    monkeypatch.setenv("PARALLEL_API_KEY", "test-key")
-    monkeypatch.setenv("PARALLEL_SEARCH_MODE", "nonsense")  # falls back to fast
+    monkeypatch.setenv("SERPER_API_KEY", "test-key")
     monkeypatch.setattr(ws.httpx, "AsyncClient", FakeClient)
 
-    results = asyncio.run(ws._parallel("fastapi release", 5))
+    results = asyncio.run(ws._serper("fastapi release", 5))
 
-    assert captured["url"] == "https://api.parallel.ai/v1/search"
-    assert captured["headers"]["x-api-key"] == "test-key"
-    assert captured["json"]["search_queries"] == ["fastapi release"]
-    assert captured["json"]["mode"] == "fast"
-    assert captured["json"]["advanced_settings"] == {
-        "excerpt_settings": {"max_chars_per_result": 800}
-    }
+    assert captured["url"] == "https://google.serper.dev/search"
+    assert captured["headers"]["X-API-KEY"] == "test-key"
+    assert captured["json"] == {"q": "fastapi release", "num": 5}
     assert results == [{"title": "", "url": "https://x.example", "snippet": "body"}]
 
 
 @pytest.mark.smoke
-def test_web_search_error_path_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("status_code", [403, 429])
+def test_web_search_error_path_propagates(monkeypatch: pytest.MonkeyPatch, status_code: int) -> None:
     import httpx
 
     from app.tools import web_search as ws
 
     async def failing_backend(query: str, count: int) -> list:
         await asyncio.sleep(0)
-        request = httpx.Request("POST", "https://api.parallel.ai/v1/search")
+        request = httpx.Request("POST", "https://google.serper.dev/search")
         response = httpx.Response(
-            422,
-            request=request,
-            json={"type": "error", "error": {"ref_id": "r1", "message": "Request validation error"}},
+            status_code, request=request, json={"message": "rejected by Serper"}
         )
         response.raise_for_status()
         return []
 
-    monkeypatch.setattr(ws, "_pick_backend", lambda: ("parallel", failing_backend))
+    monkeypatch.setattr(ws, "_pick_backend", lambda: ("serper", failing_backend))
     result = asyncio.run(ws.run_web_search({"query": "test"}))
 
     assert result["status"] == "error"
-    assert result["error"].startswith("parallel:")
-    assert "422" in result["error"]
+    assert result["error"].startswith("serper:")
+    assert str(status_code) in result["error"]
 
 
 @pytest.mark.smoke
