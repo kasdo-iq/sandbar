@@ -5,10 +5,10 @@ Manus-compatible sandbox runtime (bytecode reconstruction, modernized 2026-10; h
 ## Commands
 
 - Server: `python start_server.py` (`--port/--host/--log-level/--chrome-path`). Fail-closed: needs `SANDBOX_API_TOKEN`, or `AUTH_DISABLED=true` for local dev.
-- Tests (offline, no keys/network): `pytest tests/` → 43 tests; fast subset `pytest tests/ -m smoke` (35). Markers live in `pytest.ini`.
+- Tests (offline, no keys/network): `pytest tests/` → 57 tests; fast subset `pytest tests/ -m smoke` (49). Markers live in `pytest.ini`.
 - On this machine use the repo venv: `.\.venv\Scripts\python -m pytest tests/` (test deps in `requirements-dev.txt`).
 - Lint: `ruff check .` (`ruff.toml`: strict for modernized files, per-file relief for legacy reconstructed ones). Do NOT run `ruff format` — it churns the legacy sources.
-- Docker base `mcr.microsoft.com/playwright/python:v1.64.0-noble` must stay in lockstep with the playwright pin in `requirements.txt`; `--build-arg ALLOW_SUDO=false` builds a hardened image. No CI exists: verify with pytest + ruff + hitting endpoints.
+- Docker base `mcr.microsoft.com/playwright/python:v1.64.0-noble` must stay in lockstep with the playwright pin in `requirements.txt`; `--build-arg ALLOW_SUDO=false` builds a hardened image. CI (`.github/workflows/ci.yml`) runs ruff + pytest on Python 3.11; locally verify with pytest + ruff + hitting endpoints.
 
 ## Compatibility invariants (extend, never rename/drop)
 
@@ -21,7 +21,7 @@ Manus-compatible sandbox runtime (bytecode reconstruction, modernized 2026-10; h
 
 ## Auth, paths, config
 
-- Every endpoint except `GET /healthz` requires `x-sandbox-token` or `Authorization: Bearer` vs `SANDBOX_API_TOKEN` (fail-closed startup); per-IP 429 after 10 failed auths/60s. WS `/terminal` accepts a `?token=` fallback and closes **1008 before accept**, so a TestClient connect attempt raises rather than opens.
+- Every endpoint except `GET /healthz` and `GET /ui` requires `x-sandbox-token` or `Authorization: Bearer` vs `SANDBOX_API_TOKEN` (fail-closed startup); per-IP 429 after 10 failed auths/60s. WS `/terminal` accepts a `?token=` fallback and closes **1008 before accept**, so a TestClient connect attempt raises rather than opens.
 - Middleware order in `app/server.py`: CORS is added before `AuthMiddleware`, so preflight never hits auth; `CORS_ORIGINS` empty means no cross-origin access.
 - `app/pathsafety.py: ensure_allowed` guards every file-touching endpoint; `app/server.py` first regresses Manus-style absolute paths (`/x` → `DEFAULT_WORKING_DIR/x`). Roots come from `SANDBOX_ALLOWED_ROOTS` (default workdir).
 - Secrets stay in env / `.env` (gitignored; `browser_use` calls `load_dotenv()` on import, so a local `.env` affects agent code) and `providers.yaml` (gitignored). Committed templates are `.env.example` / `providers.example.yaml` — never put real values there.
@@ -30,7 +30,7 @@ Manus-compatible sandbox runtime (bytecode reconstruction, modernized 2026-10; h
 ## Tools / LLM layer
 
 - Tool contract: `ToolSpec(name, description, input_schema, run)` in `app/tools/registry.py`; builtins in `app/tools/*`, custom ones in `custom_tools/*.py` exposing module-level `TOOL`. Terminal/browser/text_editor are adapters in `app/tools/adapters.py`; their HTTP endpoints are untouched by that wiring.
-- `web_search` picks Tavily → Parallel (`PARALLEL_API_KEY`; `PARALLEL_SEARCH_MODE` validated against `turbo|fast|basic|advanced`, invalid warns and falls back to `fast`) → SearXNG (`SEARXNG_URL`); with none set it returns `status: "disabled"`, not an error. Every backend returns `{title, url, snippet}`.
+- `web_search` picks Tavily → Serper (`SERPER_API_KEY`, POST `https://google.serper.dev/search` with `X-API-KEY`) → SearXNG (`SEARXNG_URL`); with none set it returns `status: "disabled"`, not an error. Every backend returns `{title, url, snippet}`.
 - `get_browser_use_llm()` (`app/llm/browser_adapter.py`) returns a LangChain chat model for the vendored Agent; passing your own Claude instance still works. google-genai's `HttpOptions.timeout` is **int milliseconds** — the string form fails client construction.
 - `python_exec` memory rlimit is POSIX-only (guarded on Windows); `web_fetch`/`http_download` block private/metadata ranges and re-validate every redirect hop.
 
@@ -53,6 +53,7 @@ Manus-compatible sandbox runtime (bytecode reconstruction, modernized 2026-10; h
 ## Structure
 
 - `app/server.py` all HTTP routes · `app/auth.py` middleware · `app/pathsafety.py` · `app/terminal_socket_server.py` WS · `app/tools/**` (registry, adapters, tools) · `app/llm/**` providers · `app/agent/loop.py` agent loop behind `POST /agent/run` (SSE) · `app/types/` + `app/models.py` schemas.
+- `app/static/ui/index.html` is the chat page behind `GET /ui`: auth-exempt as a page, but its API calls need the token; `/agent/run` takes one `goal` per request (stateless), so the page keeps history client-side.
 - `browser_use/**` vendored agent library · `app_data/js/` required by it · `custom_tools/` drop-in tools · `tests/` pytest.
 
 ## Conventions
